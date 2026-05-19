@@ -1,6 +1,7 @@
 package com.example.demo.controller;
 
 import com.example.demo.dto.RoomLayoutResponseDto;
+import com.example.demo.dto.RoomLayoutRequestDto;
 import com.example.demo.dto.RoomResponseDto;
 import com.example.demo.entity.Pet;
 import com.example.demo.entity.Room;
@@ -8,6 +9,7 @@ import com.example.demo.entity.RoomFurniture;
 import com.example.demo.repository.PetRepository;
 import com.example.demo.repository.RoomFurnitureRepository;
 import com.example.demo.repository.RoomRepository;
+import com.example.demo.service.RoomService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -23,6 +25,7 @@ public class RoomController {
     private final PetRepository petRepository;
     private final RoomRepository roomRepository;
     private final RoomFurnitureRepository roomFurnitureRepository;
+    private final RoomService roomService;
 
     /**
      * 1. 방 상세 레이아웃 조회 API
@@ -32,40 +35,19 @@ public class RoomController {
     public ResponseEntity<RoomLayoutResponseDto> getMyRoomLayout(
             @RequestAttribute("currentUid") String currentUid) {
 
-        // 1. 방 주인 ID(uID)로 방 정보 조회
-        Room room = roomRepository.findByOwnerUserId(currentUid)
-                .orElseThrow(() -> new IllegalArgumentException("방 정보를 찾을 수 없습니다."));
+        return ResponseEntity.ok(roomService.getMyRoomLayout(currentUid));
+    }
 
-        // 2. 해당 방의 고유 ID(String)를 참조하는 가구 목록 조회
-        List<RoomFurniture> furnitureList = roomFurnitureRepository.findByRoomId(room.getRoomId());
+    /**
+     * 방 레이아웃 저장 API
+     * PUT /rooms/me/layout
+     */
+    @PutMapping("/me/layout")
+    public ResponseEntity<RoomLayoutResponseDto> saveMyRoomLayout(
+            @RequestAttribute("currentUid") String currentUid,
+            @RequestBody RoomLayoutRequestDto request) {
 
-        // 3. 가구 목록을 DTO로 변환
-        List<RoomLayoutResponseDto.FurnitureData> placedItems = furnitureList.stream()
-                .map(f -> RoomLayoutResponseDto.FurnitureData.builder()
-                        .id("furniture_" + f.getId())
-                        .type(f.getType())
-                        .x(f.getX())
-                        .y(f.getY())
-                        .direction(f.getDirection())
-                        .status(f.getStatus())
-                        .build())
-                .collect(Collectors.toList());
-
-        // 4. 최종 레이아웃 응답 DTO 생성
-        RoomLayoutResponseDto response = RoomLayoutResponseDto.builder()
-                .roomLayout(RoomLayoutResponseDto.LayoutData.builder()
-                        .roomId(room.getRoomId())
-                        .ownerUserId(room.getOwnerUserId())
-                        .sceneId(room.getSceneId())
-                        .layoutRevision(room.getLayoutRevision())
-                        .wallAssetKey(room.getWallAssetKey())
-                        .floorAssetKey(room.getFloorAssetKey())
-                        .placedItems(placedItems)
-                        .updatedAt(room.getUpdatedAt())
-                        .build())
-                .build();
-
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(roomService.saveMyRoomLayout(currentUid, request));
     }
 
     /**

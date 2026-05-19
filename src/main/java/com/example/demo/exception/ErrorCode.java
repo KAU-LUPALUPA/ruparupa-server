@@ -44,6 +44,11 @@ public enum ErrorCode {
     PLAZA_FULL(409, "광장 정원이 가득 찼습니다."),
     NOT_IN_PLAZA(403, "해당 광장 참가자가 아닙니다."),
     PET_NOT_FOUND(404, "펫 정보를 찾을 수 없습니다."),
+
+    // 방 레이아웃
+    ROOM_NOT_FOUND(404, "방 정보를 찾을 수 없습니다."),
+    INVALID_ROOM_LAYOUT(400, "방 레이아웃 형식이 올바르지 않습니다."),
+    ROOM_LAYOUT_CONFLICT(409, "서버의 방 레이아웃이 더 최신입니다."),
  
     // 공통
     BLOCKED(403, "접근 권한이 없습니다."),

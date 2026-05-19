@@ -8,4 +8,6 @@ public interface RoomFurnitureRepository extends JpaRepository<RoomFurniture, Lo
     
 
     List<RoomFurniture> findByRoomId(String roomId);
+
+    void deleteByRoomId(String roomId);
 }

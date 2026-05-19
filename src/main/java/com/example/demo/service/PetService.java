@@ -89,18 +89,18 @@ public class PetService {
         // 가구 세팅 시 savedRoom.getRoomId() (String) 사용
         RoomFurniture bed = new RoomFurniture();
         bed.setRoomId(savedRoom.getRoomId());
-        bed.setType("bed");
-        bed.setX(2); bed.setY(3); bed.setDirection(0);
+        bed.setType("BED");
+        bed.setX(0); bed.setY(0); bed.setDirection(0);
 
         RoomFurniture toyBox = new RoomFurniture();
         toyBox.setRoomId(savedRoom.getRoomId());
-        toyBox.setType("toy_box");
-        toyBox.setX(5); toyBox.setY(3); toyBox.setDirection(0);
+        toyBox.setType("TOY_BOX");
+        toyBox.setX(0); toyBox.setY(4); toyBox.setDirection(0);
 
         RoomFurniture feedBag = new RoomFurniture();
         feedBag.setRoomId(savedRoom.getRoomId());
-        feedBag.setType("feed_bag");
-        feedBag.setX(8); feedBag.setY(3); feedBag.setDirection(0);
+        feedBag.setType("FOOD_BAG");
+        feedBag.setX(1); feedBag.setY(3); feedBag.setDirection(0);
 
         roomFurnitureRepository.saveAll(List.of(bed, toyBox, feedBag));
         
