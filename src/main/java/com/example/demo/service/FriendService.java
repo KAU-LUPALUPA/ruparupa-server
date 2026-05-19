@@ -34,6 +34,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.Collectors;
  
 @Service
@@ -113,6 +114,7 @@ public class FriendService {
     }
 
     private FriendDto.FriendPlacedItem convertToPlacedItemDto(RoomFurniture furniture) {
+        TileFootprint footprint = footprintFor(furniture.getType());
         float anchorU = Math.max(0f, Math.min(1f, (furniture.getX() + 0.5f) / 10f));
         float anchorV = Math.max(0f, Math.min(1f, (furniture.getY() + 0.5f) / 10f));
 
@@ -128,11 +130,26 @@ public class FriendService {
                 .tile(FriendDto.FriendTile.builder()
                         .x(furniture.getX())
                         .y(furniture.getY())
-                        .widthTiles(1)
-                        .depthTiles(1)
+                        .widthTiles(footprint.widthTiles())
+                        .depthTiles(footprint.depthTiles())
                         .anchorMode("CENTER")
                         .build())
                 .build();
+    }
+
+    private TileFootprint footprintFor(String type) {
+        if (type == null) {
+            return new TileFootprint(1, 1);
+        }
+
+        return switch (type.trim().replace('-', '_').toUpperCase(Locale.ROOT)) {
+            case "BED" -> new TileFootprint(2, 2);
+            case "TOY_BOX", "FOOD_BAG", "FEED_BAG" -> new TileFootprint(1, 1);
+            default -> new TileFootprint(1, 1);
+        };
+    }
+
+    private record TileFootprint(int widthTiles, int depthTiles) {
     }
 
     private FriendDto.FriendPetSnapshot convertToPetSnapshotDto(Pet pet) {

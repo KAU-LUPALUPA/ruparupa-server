@@ -2,6 +2,8 @@ package com.example.demo.service;
 
 import com.example.demo.dto.RoomLayoutRequestDto;
 import com.example.demo.dto.RoomLayoutResponseDto;
+import com.example.demo.dto.RoomLayoutValidationRequestDto;
+import com.example.demo.dto.RoomLayoutValidationResponseDto;
 import com.example.demo.entity.Room;
 import com.example.demo.entity.RoomFurniture;
 import com.example.demo.exception.CustomApiException;
@@ -40,6 +42,30 @@ public class RoomService {
         Room room = getRoomForOwner(currentUid);
         List<RoomFurniture> furnitureList = roomFurnitureRepository.findByRoomId(room.getRoomId());
         return toResponse(room, furnitureList);
+    }
+
+    @Transactional(readOnly = true)
+    public RoomLayoutValidationResponseDto validateMyRoomLayout(
+            String currentUid,
+            RoomLayoutValidationRequestDto request
+    ) {
+        Room room = getRoomForOwner(currentUid);
+        List<RoomFurniture> furnitureList = roomFurnitureRepository.findByRoomId(room.getRoomId());
+        RoomLayoutResponseDto.LayoutData serverLayout = toResponse(room, furnitureList).getRoomLayout();
+
+        boolean layoutMatches = request != null &&
+                request.getLocalLayoutRevision() != null &&
+                request.getLocalLayoutRevision() == serverLayout.getLayoutRevision() &&
+                request.getLocalLayoutHash() != null &&
+                request.getLocalLayoutHash().equals(serverLayout.getLayoutHash());
+
+        return RoomLayoutValidationResponseDto.builder()
+                .syncStatus(layoutMatches ? "MATCH" : "SERVER_UPDATED")
+                .serverLayoutRevision(serverLayout.getLayoutRevision())
+                .serverLayoutHash(serverLayout.getLayoutHash())
+                .serverUpdatedAt(serverLayout.getUpdatedAt())
+                .roomLayout(layoutMatches ? null : serverLayout)
+                .build();
     }
 
     @Transactional
@@ -266,14 +292,23 @@ public class RoomService {
             String type,
             RoomLayoutRequestDto.TileFootprint requestFootprint
     ) {
+        TileFootprint expectedFootprint = defaultFootprintFor(type);
         if (
                 requestFootprint == null ||
                 requestFootprint.getWidthTiles() == null ||
                 requestFootprint.getDepthTiles() == null
         ) {
-            return defaultFootprintFor(type);
+            return expectedFootprint;
         }
-        return new TileFootprint(requestFootprint.getWidthTiles(), requestFootprint.getDepthTiles());
+
+        if (
+                requestFootprint.getWidthTiles() != expectedFootprint.widthTiles() ||
+                requestFootprint.getDepthTiles() != expectedFootprint.depthTiles()
+        ) {
+            throw new CustomApiException(ErrorCode.INVALID_ROOM_LAYOUT);
+        }
+
+        return expectedFootprint;
     }
 
     private TileFootprint defaultFootprintFor(String type) {

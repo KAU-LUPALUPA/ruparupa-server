@@ -2,6 +2,8 @@ package com.example.demo.controller;
 
 import com.example.demo.dto.RoomLayoutResponseDto;
 import com.example.demo.dto.RoomLayoutRequestDto;
+import com.example.demo.dto.RoomLayoutValidationRequestDto;
+import com.example.demo.dto.RoomLayoutValidationResponseDto;
 import com.example.demo.dto.RoomResponseDto;
 import com.example.demo.entity.Pet;
 import com.example.demo.entity.Room;
@@ -36,6 +38,18 @@ public class RoomController {
             @RequestAttribute("currentUid") String currentUid) {
 
         return ResponseEntity.ok(roomService.getMyRoomLayout(currentUid));
+    }
+
+    /**
+     * 방 레이아웃 동기화 검증 API
+     * POST /rooms/me/layout/validate
+     */
+    @PostMapping("/me/layout/validate")
+    public ResponseEntity<RoomLayoutValidationResponseDto> validateMyRoomLayout(
+            @RequestAttribute("currentUid") String currentUid,
+            @RequestBody RoomLayoutValidationRequestDto request) {
+
+        return ResponseEntity.ok(roomService.validateMyRoomLayout(currentUid, request));
     }
 
     /**
