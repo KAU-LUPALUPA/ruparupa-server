@@ -64,13 +64,7 @@ public class RoomController {
             @RequestAttribute("currentUid") String currentUid,
             @RequestBody RoomLayoutRequestDto request) {
 
-<<<<<<< HEAD
         return ResponseEntity.ok(roomService.saveMyRoomLayout(currentUid, request));
-=======
-        return ResponseEntity.ok(response);
-
-
->>>>>>> 3cd5f0af662da752a3a9377b4bd15d6e876c230f
     }
 
     /**
@@ -131,9 +125,6 @@ public class RoomController {
 
         return ResponseEntity.ok(response);
     }
-<<<<<<< HEAD
-}
-=======
     @Getter
     @Setter
     public static class SaveFurnitureRequest {
@@ -184,4 +175,3 @@ public class RoomController {
         return ResponseEntity.ok("방 배치 저장 완료");
     }
 }
->>>>>>> 3cd5f0af662da752a3a9377b4bd15d6e876c230f
