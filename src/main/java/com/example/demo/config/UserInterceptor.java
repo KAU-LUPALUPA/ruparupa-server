@@ -1,6 +1,7 @@
 package com.example.demo.config;
 
 import com.example.demo.JwtUtil;
+import com.example.demo.User;
 import com.example.demo.UserRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -42,12 +43,12 @@ public class UserInterceptor implements HandlerInterceptor {
             String uid = jwtUtil.extractUid(token);
 
             // 6. 진짜 존재하는 유저인지 확인
-            if (userRepository.findByUid(uid).isEmpty()) {
-                throw new RuntimeException("존재하지 않는 유저입니다.");
-            }
+            User user = userRepository.findByUid(uid)
+                    .orElseThrow(() -> new RuntimeException("존재하지 않는 유저입니다."));
 
-            // 7. 통과! 컨트롤러에서 쓰기 편하게 request 안에 uid를 쏙 넣어둠
-            request.setAttribute("currentUid", uid);
+            // 7. 통과! 컨트롤러에서 쓰기 편하게 request 안에 사용자 정보를 넣어둠
+            request.setAttribute("currentUid", user.getUid());
+            request.setAttribute("currentNickname", user.getNickname());
             return true;
 
         } catch (Exception e) {
