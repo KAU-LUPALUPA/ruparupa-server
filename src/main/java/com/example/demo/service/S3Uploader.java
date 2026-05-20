@@ -31,4 +31,14 @@ public class S3Uploader {
 
         return amazonS3Client.getUrl(bucket, fileName).toString();
     }
+
+    public String uploadFile(MultipartFile multipartFile, String customKey) throws IOException {
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(multipartFile.getSize());
+        metadata.setContentType(multipartFile.getContentType());
+
+        amazonS3Client.putObject(bucket, customKey, multipartFile.getInputStream(), metadata);
+
+        return amazonS3Client.getUrl(bucket, customKey).toString();
+    }
 }
