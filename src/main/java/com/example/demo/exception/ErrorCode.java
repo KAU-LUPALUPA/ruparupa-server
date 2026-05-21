@@ -49,6 +49,12 @@ public enum ErrorCode {
     ROOM_NOT_FOUND(404, "방 정보를 찾을 수 없습니다."),
     INVALID_ROOM_LAYOUT(400, "방 레이아웃 형식이 올바르지 않습니다."),
     ROOM_LAYOUT_CONFLICT(409, "서버의 방 레이아웃이 더 최신입니다."),
+
+    // 갤러리 (스크린샷)
+    SCREENSHOT_NOT_FOUND(404, "스크린샷을 찾을 수 없습니다."),
+    SCREENSHOT_ACCESS_DENIED(403, "해당 스크린샷에 접근 권한이 없습니다."),
+    SCREENSHOT_UPLOAD_FAILED(500, "S3 업로드 URL 생성에 실패했습니다."),
+    SCREENSHOT_DELETE_FAILED(500, "S3 파일 삭제에 실패했습니다."),
  
     // 공통
     BLOCKED(403, "접근 권한이 없습니다."),
