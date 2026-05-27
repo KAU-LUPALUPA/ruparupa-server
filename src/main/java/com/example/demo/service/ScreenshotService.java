@@ -17,7 +17,7 @@ import java.util.UUID;
 public class ScreenshotService {
 
     private final ScreenshotRepository screenshotRepository;
-    private final S3Uploader s3Uploader; // S3PresignedService 대신 S3Uploader 사용
+    private final S3Uploader s3Uploader;
 
     // =============================================
     // GET /gallery/items
