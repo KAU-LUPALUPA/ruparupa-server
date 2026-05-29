@@ -40,6 +40,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/photos/**").permitAll()
                         // gallery API: UserInterceptor에서 JWT 인증 처리하므로 Security 레벨은 permitAll
                         .requestMatchers("/gallery/**").permitAll()
+                        .requestMatchers("/contest/**").permitAll()
                         .anyRequest().authenticated())
                 .oauth2Login(oauth2 -> oauth2
                         .userInfoEndpoint(userInfo -> userInfo.userService(customOAuth2UserService))
