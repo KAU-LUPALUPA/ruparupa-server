@@ -13,6 +13,7 @@ import com.example.demo.repository.ContestEntryRepository;
 import com.example.demo.repository.ContestGroupRepository;
 import com.example.demo.repository.ContestVoteRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,6 +23,7 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ContestService {
 
     private final ContestGroupRepository groupRepository;
@@ -73,7 +75,17 @@ public class ContestService {
 
         // ⑥ S3 Presigned PUT URL 발급
         String fileKey = S3_PREFIX + userUid + "_" + UUID.randomUUID() + ".png";
-        String uploadUrl = s3Uploader.generatePresignedPutUrl(fileKey, IMAGE_CONTENT_TYPE);
+        String uploadUrl;
+        try {
+            uploadUrl = s3Uploader.generatePresignedPutUrl(fileKey, IMAGE_CONTENT_TYPE);
+        } catch (Exception e) {
+            log.error("Failed to generate contest S3 presigned URL. userUid={}, fileKey={}",
+                    userUid, fileKey, e);
+            throw new CustomApiException(
+                    ErrorCode.CONTEST_UPLOAD_URL_FAILED,
+                    toDebugMessage(ErrorCode.CONTEST_UPLOAD_URL_FAILED.getMessage(), e)
+            );
+        }
 
         return ContestDto.JoinResponse.builder()
                 .success(true)
@@ -183,5 +195,21 @@ public class ContestService {
                         .myEntryId(myEntry.getId())
                         .build())
                 .build();
+    }
+
+    private String toDebugMessage(String baseMessage, Throwable throwable) {
+        Throwable rootCause = throwable;
+        while (rootCause.getCause() != null) {
+            rootCause = rootCause.getCause();
+        }
+
+        String detail = rootCause.getMessage();
+        if (detail == null || detail.isBlank()) {
+            detail = rootCause.getClass().getSimpleName();
+        } else {
+            detail = rootCause.getClass().getSimpleName() + ": " + detail;
+        }
+
+        return baseMessage + " (" + detail + ")";
     }
 }

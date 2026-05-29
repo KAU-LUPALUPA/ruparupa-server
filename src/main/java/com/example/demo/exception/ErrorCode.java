@@ -65,8 +65,10 @@ public enum ErrorCode {
     CONTEST_CANNOT_VOTE_SELF(400, "자신의 캐릭터에는 투표할 수 없습니다."),
     CONTEST_ALREADY_VOTED(409, "이미 해당 참가자에게 투표했습니다."),
     CONTEST_NOT_JOINED(404, "현재 참가 중인 콘테스트가 없습니다."),
+    CONTEST_UPLOAD_URL_FAILED(500, "콘테스트 이미지 업로드 URL 생성에 실패했습니다."),
  
     // 공통
+    DATABASE_ERROR(500, "데이터베이스 처리 중 오류가 발생했습니다."),
     BLOCKED(403, "접근 권한이 없습니다."),
     UNKNOWN(500, "서버 내부 오류가 발생했습니다.");
  
