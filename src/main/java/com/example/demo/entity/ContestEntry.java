@@ -54,7 +54,7 @@ public class ContestEntry {
      * 최종 등수 (null = 아직 종료 전 / 1·2·3 = 종료 후 스케줄러가 부여)
      * 동점 처리: voteCount 동일 시 joinedAt 이 빠른 쪽이 상위 등수
      */
-    @Column
+    @Column(name = "contest_rank")
     private Integer rank;
 
     @CreationTimestamp
