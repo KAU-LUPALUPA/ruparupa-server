@@ -75,16 +75,15 @@ public class ContestService {
 
         // ⑥ S3 Presigned PUT URL 발급
         String fileKey = S3_PREFIX + userUid + "_" + UUID.randomUUID() + ".png";
-        String uploadUrl;
+        String uploadUrl = null;
+        String uploadErrorMessage = null;
         try {
             uploadUrl = s3Uploader.generatePresignedPutUrl(fileKey, IMAGE_CONTENT_TYPE);
         } catch (Exception e) {
             log.error("Failed to generate contest S3 presigned URL. userUid={}, fileKey={}",
                     userUid, fileKey, e);
-            throw new CustomApiException(
-                    ErrorCode.CONTEST_UPLOAD_URL_FAILED,
-                    toDebugMessage(ErrorCode.CONTEST_UPLOAD_URL_FAILED.getMessage(), e)
-            );
+            uploadErrorMessage = toDebugMessage(ErrorCode.CONTEST_UPLOAD_URL_FAILED.getMessage(), e);
+            fileKey = null;
         }
 
         return ContestDto.JoinResponse.builder()
@@ -94,6 +93,8 @@ public class ContestService {
                         .groupId(group.getGroupId())
                         .uploadUrl(uploadUrl)
                         .fileKey(fileKey)
+                        .imageUploadAvailable(uploadUrl != null && fileKey != null)
+                        .uploadErrorMessage(uploadErrorMessage)
                         .build())
                 .build();
     }

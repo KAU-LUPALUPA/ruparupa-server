@@ -28,6 +28,13 @@ public class ContestDto {
              * S3 파일 키 (confirm 시 그대로 전달)
              */
             private String fileKey;
+            /**
+             * true면 uploadUrl/fileKey로 이미지 업로드 가능.
+             * false면 조 매칭은 완료됐지만 이미지 업로드 URL 발급은 실패한 상태.
+             */
+            private boolean imageUploadAvailable;
+            /** 이미지 업로드 URL 발급 실패 사유 */
+            private String uploadErrorMessage;
         }
     }
 
