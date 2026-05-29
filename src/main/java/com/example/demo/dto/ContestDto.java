@@ -73,6 +73,7 @@ public class ContestDto {
         @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
         public static class MyGroupData {
             private String groupId;
+            private Long groupNumber;
             /** OPEN / ACTIVE / CLOSED */
             private String status;
             /** 자동 종료 예정 시각 */
@@ -82,6 +83,28 @@ public class ContestDto {
             /** 내 entry ID (투표 받을 때 필요) */
             private Long myEntryId;
         }
+    }
+
+    @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
+    public static class GroupListResponse {
+        private boolean success;
+        private List<GroupSummary> data;
+    }
+
+    @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
+    public static class GroupSummary {
+        private String groupId;
+        private Long groupNumber;
+        /** OPEN / ACTIVE */
+        private String status;
+        private long memberCount;
+        private boolean myGroup;
+    }
+
+    @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
+    public static class GroupDetailResponse {
+        private boolean success;
+        private MyGroupResponse.MyGroupData data;
     }
 
     /** 그룹 조회 시 하나의 참가자 정보 */

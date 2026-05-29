@@ -40,6 +40,21 @@ public class ContestController {
         return ResponseEntity.ok(contestService.vote(currentUid, request));
     }
 
+    @GetMapping("/groups")
+    public ResponseEntity<ContestDto.GroupListResponse> listGroups(
+            @RequestAttribute(value = "currentUid", required = false) String currentUid
+    ) {
+        return ResponseEntity.ok(contestService.listGroups(currentUid));
+    }
+
+    @GetMapping("/groups/{groupId}")
+    public ResponseEntity<ContestDto.GroupDetailResponse> getGroupDetail(
+            @RequestAttribute(value = "currentUid", required = false) String currentUid,
+            @PathVariable String groupId
+    ) {
+        return ResponseEntity.ok(contestService.getGroupDetail(currentUid, groupId));
+    }
+
     // 내가 속한 현재 그룹 정보 조회
 
     /**

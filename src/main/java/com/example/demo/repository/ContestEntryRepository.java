@@ -17,6 +17,8 @@ public interface ContestEntryRepository extends JpaRepository<ContestEntry, Long
     /** 특정 그룹의 모든 entry 목록 */
     List<ContestEntry> findByGroupId(String groupId);
 
+    List<ContestEntry> findByGroupIdOrderByJoinedAtAsc(String groupId);
+
     /**
      * 특정 그룹의 entry를 voteCount 내림차순, joinedAt 오름차순으로 정렬.
      * 동점일 경우 먼저 참가한 유저가 상위 등수를 얻음.

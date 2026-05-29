@@ -38,6 +38,8 @@ public class ContestService {
     // OPEN / ACTIVE 상태 목록 (findActiveEntryByUserUid 파라미터용)
     private static final List<ContestGroupStatus> ACTIVE_STATUSES =
             List.of(ContestGroupStatus.OPEN, ContestGroupStatus.ACTIVE);
+    private static final List<ContestGroupStatus> VISIBLE_STATUSES =
+            List.of(ContestGroupStatus.OPEN, ContestGroupStatus.ACTIVE);
 
     // 1. 참가 신청
 
@@ -168,7 +170,61 @@ public class ContestService {
         ContestGroup group = groupRepository.findByGroupId(myEntry.getGroupId())
                 .orElseThrow(() -> new CustomApiException(ErrorCode.CONTEST_GROUP_NOT_FOUND));
 
-        List<ContestEntry> entries = entryRepository.findByGroupId(group.getGroupId());
+        return ContestDto.MyGroupResponse.builder()
+                .success(true)
+                .data(toGroupData(group, myEntry.getId()))
+                .build();
+    }
+
+    @Transactional(readOnly = true)
+    public ContestDto.GroupListResponse listGroups(String userUid) {
+        String myGroupId = null;
+        if (userUid != null && !userUid.isBlank()) {
+            myGroupId = entryRepository.findActiveEntryByUserUid(userUid, ACTIVE_STATUSES)
+                    .map(ContestEntry::getGroupId)
+                    .orElse(null);
+        }
+
+        String currentGroupId = myGroupId;
+        List<ContestGroup> visibleGroups = groupRepository.findByStatusInOrderByCreatedAtAsc(VISIBLE_STATUSES);
+        List<ContestDto.GroupSummary> groups = new java.util.ArrayList<>();
+        for (int i = 0; i < visibleGroups.size(); i++) {
+            ContestGroup group = visibleGroups.get(i);
+            groups.add(ContestDto.GroupSummary.builder()
+                        .groupId(group.getGroupId())
+                        .groupNumber((long) i + 1)
+                        .status(group.getStatus().name())
+                        .memberCount(entryRepository.countByGroupId(group.getGroupId()))
+                        .myGroup(group.getGroupId().equals(currentGroupId))
+                        .build());
+        }
+
+        return ContestDto.GroupListResponse.builder()
+                .success(true)
+                .data(groups)
+                .build();
+    }
+
+    @Transactional(readOnly = true)
+    public ContestDto.GroupDetailResponse getGroupDetail(String userUid, String groupId) {
+        ContestGroup group = groupRepository.findByGroupId(groupId)
+                .orElseThrow(() -> new CustomApiException(ErrorCode.CONTEST_GROUP_NOT_FOUND));
+
+        Long myEntryId = null;
+        if (userUid != null && !userUid.isBlank()) {
+            myEntryId = entryRepository.findByGroupIdAndUserUid(groupId, userUid)
+                    .map(ContestEntry::getId)
+                    .orElse(null);
+        }
+
+        return ContestDto.GroupDetailResponse.builder()
+                .success(true)
+                .data(toGroupData(group, myEntryId))
+                .build();
+    }
+
+    private ContestDto.MyGroupResponse.MyGroupData toGroupData(ContestGroup group, Long myEntryId) {
+        List<ContestEntry> entries = entryRepository.findByGroupIdOrderByJoinedAtAsc(group.getGroupId());
 
         List<ContestDto.EntryInfo> entryInfos = entries.stream()
                 .map(e -> {
@@ -186,16 +242,25 @@ public class ContestService {
                 })
                 .collect(Collectors.toList());
 
-        return ContestDto.MyGroupResponse.builder()
-                .success(true)
-                .data(ContestDto.MyGroupResponse.MyGroupData.builder()
-                        .groupId(group.getGroupId())
-                        .status(group.getStatus().name())
-                        .closeAt(group.getCloseAt())
-                        .entries(entryInfos)
-                        .myEntryId(myEntry.getId())
-                        .build())
+        return ContestDto.MyGroupResponse.MyGroupData.builder()
+                .groupId(group.getGroupId())
+                .groupNumber(resolveGroupNumber(group))
+                .status(group.getStatus().name())
+                .closeAt(group.getCloseAt())
+                .entries(entryInfos)
+                .myEntryId(myEntryId)
                 .build();
+    }
+
+    private Long resolveGroupNumber(ContestGroup targetGroup) {
+        List<ContestGroup> visibleGroups = groupRepository.findByStatusInOrderByCreatedAtAsc(VISIBLE_STATUSES);
+        for (int i = 0; i < visibleGroups.size(); i++) {
+            if (visibleGroups.get(i).getGroupId().equals(targetGroup.getGroupId())) {
+                return (long) i + 1;
+            }
+        }
+
+        return targetGroup.getId();
     }
 
     private String toDebugMessage(String baseMessage, Throwable throwable) {

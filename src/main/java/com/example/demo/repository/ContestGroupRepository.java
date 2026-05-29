@@ -21,6 +21,8 @@ public interface ContestGroupRepository extends JpaRepository<ContestGroup, Long
     @Query("SELECT g FROM ContestGroup g WHERE g.status = :status ORDER BY g.createdAt ASC")
     List<ContestGroup> findOpenGroupsWithLock(@Param("status") ContestGroupStatus status);
 
+    List<ContestGroup> findByStatusInOrderByCreatedAtAsc(List<ContestGroupStatus> statuses);
+
     Optional<ContestGroup> findByGroupId(String groupId);
 
     /** 스케줄러용: 특정 상태이면서 closeAt 이 기준 시각 이전인 그룹 목록 */
