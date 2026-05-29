@@ -38,8 +38,9 @@ dependencies {
 	implementation 'com.fasterxml.jackson.core:jackson-databind'
 
 	// AWS S3 연동
-	// [수정] spring-cloud-starter-aws:2.2.6.RELEASE (Spring Boot 2.x 전용) 제거
-	implementation 'io.awspring.cloud:spring-cloud-aws-starter-s3:3.3.0'
+	// spring-cloud-aws는 Spring Boot 4.0 미지원 → AWS SDK v2 직접 사용
+	implementation 'software.amazon.awssdk:s3:2.25.60'
+	implementation 'software.amazon.awssdk:sts:2.25.60'
 }
 
 tasks.named('test') {
