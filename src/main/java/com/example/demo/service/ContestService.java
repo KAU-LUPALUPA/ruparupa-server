@@ -49,10 +49,17 @@ public class ContestService {
         userRepository.findByUid(userUid)
                 .orElseThrow(() -> new CustomApiException(ErrorCode.USER_NOT_FOUND));
 
-        // ② 이미 OPEN 또는 ACTIVE 그룹에 참가 중인지 확인
-        entryRepository.findActiveEntryByUserUid(userUid, ACTIVE_STATUSES).ifPresent(e -> {
-            throw new CustomApiException(ErrorCode.CONTEST_ALREADY_JOINED);
-        });
+        // ② 매칭은 끝났지만 이미지가 없는 경우 기존 entry로 업로드 재시도
+        ContestEntry existingEntry = entryRepository
+                .findActiveEntryByUserUid(userUid, ACTIVE_STATUSES)
+                .orElse(null);
+        if (existingEntry != null) {
+            if (existingEntry.isConfirmed()) {
+                throw new CustomApiException(ErrorCode.CONTEST_ALREADY_JOINED);
+            }
+
+            return createJoinResponseWithUploadUrl(userUid, existingEntry);
+        }
 
         // ③ OPEN 그룹 조회 (비관적 잠금) — 없으면 새 그룹 생성
         //    List로 받아 첫 번째 사용 (Optional 다중결과 예외 방지)
@@ -76,6 +83,10 @@ public class ContestService {
         }
 
         // ⑥ S3 Presigned PUT URL 발급
+        return createJoinResponseWithUploadUrl(userUid, entry);
+    }
+
+    private ContestDto.JoinResponse createJoinResponseWithUploadUrl(String userUid, ContestEntry entry) {
         String fileKey = S3_PREFIX + userUid + "_" + UUID.randomUUID() + ".png";
         String uploadUrl = null;
         String uploadErrorMessage = null;
@@ -92,7 +103,7 @@ public class ContestService {
                 .success(true)
                 .data(ContestDto.JoinResponse.JoinData.builder()
                         .entryId(entry.getId())
-                        .groupId(group.getGroupId())
+                        .groupId(entry.getGroupId())
                         .uploadUrl(uploadUrl)
                         .fileKey(fileKey)
                         .imageUploadAvailable(uploadUrl != null && fileKey != null)

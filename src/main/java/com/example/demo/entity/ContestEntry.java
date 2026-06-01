@@ -5,6 +5,7 @@ import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 @Entity
 @Table(
@@ -23,6 +24,9 @@ public class ContestEntry {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    @Column(name = "uid", nullable = false, unique = true, updatable = false)
+    private String uid;
 
     // 소속 그룹 ID (ContestGroup.groupId 참조, String으로 관리)
     @Column(name = "group_id", nullable = false)
@@ -60,6 +64,13 @@ public class ContestEntry {
     @CreationTimestamp
     @Column(nullable = false, updatable = false)
     private LocalDateTime joinedAt;
+
+    @PrePersist
+    public void generateUid() {
+        if (this.uid == null || this.uid.isBlank()) {
+            this.uid = "cp_" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+        }
+    }
 
     /** 투표 수 1 증가 */
     public void incrementVote() {
