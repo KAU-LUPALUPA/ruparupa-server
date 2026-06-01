@@ -49,15 +49,11 @@ public class ContestService {
         userRepository.findByUid(userUid)
                 .orElseThrow(() -> new CustomApiException(ErrorCode.USER_NOT_FOUND));
 
-        // ② 매칭은 끝났지만 이미지가 없는 경우 기존 entry로 업로드 재시도
+        // ② 기존 참가자는 같은 entry를 유지한 채 이미지 업로드 또는 교체
         ContestEntry existingEntry = entryRepository
                 .findActiveEntryByUserUid(userUid, ACTIVE_STATUSES)
                 .orElse(null);
         if (existingEntry != null) {
-            if (existingEntry.isConfirmed()) {
-                throw new CustomApiException(ErrorCode.CONTEST_ALREADY_JOINED);
-            }
-
             return createJoinResponseWithUploadUrl(userUid, existingEntry);
         }
 
@@ -123,11 +119,22 @@ public class ContestService {
             throw new CustomApiException(ErrorCode.CONTEST_ACCESS_DENIED);
         }
 
-        if (entry.isConfirmed()) {
-            return ContestDto.ConfirmResponse.builder().success(true).build();
+        String newFileKey = request.getFileKey();
+        if (newFileKey == null || !newFileKey.startsWith(S3_PREFIX)) {
+            throw new IllegalArgumentException("콘테스트 이미지 파일 키가 올바르지 않습니다.");
         }
 
-        entry.confirm(request.getFileKey());
+        String previousFileKey = entry.getImageKey();
+        entry.confirm(newFileKey);
+
+        if (previousFileKey != null && !previousFileKey.equals(newFileKey)) {
+            try {
+                s3Uploader.deleteFiles(List.of(previousFileKey));
+            } catch (Exception e) {
+                log.warn("Failed to delete previous contest image. entryId={}, fileKey={}",
+                        entry.getId(), previousFileKey, e);
+            }
+        }
 
         return ContestDto.ConfirmResponse.builder().success(true).build();
     }
@@ -145,11 +152,11 @@ public class ContestService {
             throw new CustomApiException(ErrorCode.CONTEST_CANNOT_VOTE_SELF);
         }
 
-        // ③ 그룹이 ACTIVE 인지 확인
+        // ③ 종료되지 않은 그룹인지 확인
         ContestGroup group = groupRepository.findByGroupId(entry.getGroupId())
                 .orElseThrow(() -> new CustomApiException(ErrorCode.CONTEST_GROUP_NOT_FOUND));
 
-        if (group.getStatus() != ContestGroupStatus.ACTIVE) {
+        if (group.getStatus() == ContestGroupStatus.CLOSED) {
             throw new CustomApiException(ErrorCode.CONTEST_NOT_ACTIVE);
         }
 
@@ -240,7 +247,7 @@ public class ContestService {
         List<ContestDto.EntryInfo> entryInfos = entries.stream()
                 .map(e -> {
                     String imageUrl = e.isConfirmed()
-                            ? s3Uploader.getFileUrl(e.getImageKey())
+                            ? s3Uploader.generatePresignedGetUrl(e.getImageKey())
                             : null;
                     return ContestDto.EntryInfo.builder()
                             .entryId(e.getId())

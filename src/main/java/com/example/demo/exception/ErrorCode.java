@@ -61,7 +61,7 @@ public enum ErrorCode {
     CONTEST_ENTRY_NOT_FOUND(404, "콘테스트 참가 정보를 찾을 수 없습니다."),
     CONTEST_GROUP_NOT_FOUND(404, "콘테스트 그룹을 찾을 수 없습니다."),
     CONTEST_ACCESS_DENIED(403, "해당 콘테스트 참가 정보에 접근 권한이 없습니다."),
-    CONTEST_NOT_ACTIVE(409, "투표는 3명이 모인 ACTIVE 상태의 그룹에서만 가능합니다."),
+    CONTEST_NOT_ACTIVE(409, "종료된 콘테스트에는 투표할 수 없습니다."),
     CONTEST_CANNOT_VOTE_SELF(400, "자신의 캐릭터에는 투표할 수 없습니다."),
     CONTEST_ALREADY_VOTED(409, "이미 해당 참가자에게 투표했습니다."),
     CONTEST_NOT_JOINED(404, "현재 참가 중인 콘테스트가 없습니다."),
