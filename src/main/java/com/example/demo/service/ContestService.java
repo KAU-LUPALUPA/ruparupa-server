@@ -167,13 +167,14 @@ public class ContestService {
             throw new CustomApiException(ErrorCode.CONTEST_NOT_ACTIVE);
         }
 
-        String myGroupId = entryRepository
-                .findActiveEntryByUserUid(voterUid, ACTIVE_STATUSES)
-                .map(ContestEntry::getGroupId)
-                .orElse(null);
-        if (entry.getGroupId().equals(myGroupId)) {
-            throw new CustomApiException(ErrorCode.CONTEST_CANNOT_VOTE_OWN_GROUP);
-        }
+        // [테스트용] 자신의 조 투표 차단 임시 비활성화
+        // String myGroupId = entryRepository
+        //         .findActiveEntryByUserUid(voterUid, ACTIVE_STATUSES)
+        //         .map(ContestEntry::getGroupId)
+        //         .orElse(null);
+        // if (entry.getGroupId().equals(myGroupId)) {
+        //     throw new CustomApiException(ErrorCode.CONTEST_CANNOT_VOTE_OWN_GROUP);
+        // }
 
         LocalDateTime todayStart = LocalDate.now().atStartOfDay();
         if (voteRepository.countTodayVotes(voterUid, todayStart) > 0) {
