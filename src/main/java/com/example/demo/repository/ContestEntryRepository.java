@@ -29,7 +29,7 @@ public interface ContestEntryRepository extends JpaRepository<ContestEntry, Long
     boolean existsByGroupIdAndUserUid(String groupId, String userUid);
 
     /**
-     * 유저가 현재 참가 중인 OPEN 또는 ACTIVE 그룹의 entry 조회. :statuses 파라미터로 ContestGroupStatus enum 값을 직접 전달.
+     * 유저가 현재 참가 중인 OPEN 또는 ACTIVE 그룹의 entry 조회.
      */
     @Query("""
         SELECT e FROM ContestEntry e
@@ -43,4 +43,34 @@ public interface ContestEntryRepository extends JpaRepository<ContestEntry, Long
     );
 
     Optional<ContestEntry> findByGroupIdAndUserUid(String groupId, String userUid);
+
+    /**
+     * 실시간 랭킹용: 진행 중인 그룹(OPEN/ACTIVE)의 confirmed 된 entry를
+     * voteCount 내림차순, joinedAt 오름차순으로 전체 조회.
+     */
+    @Query("""
+        SELECT e FROM ContestEntry e
+        JOIN ContestGroup g ON e.groupId = g.groupId
+        WHERE g.status IN :statuses
+          AND e.confirmed = true
+        ORDER BY e.voteCount DESC, e.joinedAt ASC
+        """)
+    List<ContestEntry> findLiveRankingEntries(
+            @Param("statuses") List<ContestGroupStatus> statuses
+    );
+
+    /**
+     * 최근 랭킹용: 특정 그룹 ID 목록에 속한 entry를
+     * rank 오름차순, joinedAt 오름차순으로 조회.
+     */
+    @Query("""
+        SELECT e FROM ContestEntry e
+        WHERE e.groupId IN :groupIds
+          AND e.confirmed = true
+          AND e.rank IS NOT NULL
+        ORDER BY e.rank ASC, e.joinedAt ASC
+        """)
+    List<ContestEntry> findRecentRankingEntries(
+            @Param("groupIds") List<String> groupIds
+    );
 }

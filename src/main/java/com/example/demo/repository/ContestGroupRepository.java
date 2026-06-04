@@ -3,6 +3,7 @@ package com.example.demo.repository;
 import com.example.demo.entity.ContestGroup;
 import com.example.demo.entity.ContestGroupStatus;
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -27,4 +28,19 @@ public interface ContestGroupRepository extends JpaRepository<ContestGroup, Long
 
     /** 스케줄러용: 특정 상태이면서 closeAt 이 기준 시각 이전인 그룹 목록 */
     List<ContestGroup> findByStatusAndCloseAtBefore(ContestGroupStatus status, LocalDateTime now);
+
+    /**
+     * 최근 랭킹용: CLOSED 상태 그룹을 closedAt 내림차순으로 최근 N개 조회.
+     * Pageable로 limit 제어 (예: PageRequest.of(0, 5) → 최근 5개 그룹).
+     */
+    @Query("""
+        SELECT g FROM ContestGroup g
+        WHERE g.status = :status
+          AND g.closedAt IS NOT NULL
+        ORDER BY g.closedAt DESC
+        """)
+    List<ContestGroup> findRecentClosedGroups(
+            @Param("status") ContestGroupStatus status,
+            Pageable pageable
+    );
 }

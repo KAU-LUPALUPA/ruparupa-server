@@ -66,6 +66,9 @@ public enum ErrorCode {
     CONTEST_ALREADY_VOTED(409, "이미 해당 참가자에게 투표했습니다."),
     CONTEST_NOT_JOINED(404, "현재 참가 중인 콘테스트가 없습니다."),
     CONTEST_UPLOAD_URL_FAILED(500, "콘테스트 이미지 업로드 URL 생성에 실패했습니다."),
+    CONTEST_ALREADY_VOTED_TODAY(409, "오늘 이미 투표에 참여했습니다."),
+    CONTEST_NO_VOTABLE_GROUP(404, "현재 투표 가능한 다른 조가 없습니다."),
+    CONTEST_CANNOT_VOTE_OWN_GROUP(403, "자신이 속한 조에는 투표할 수 없습니다."),
  
     // 공통
     DATABASE_ERROR(500, "데이터베이스 처리 중 오류가 발생했습니다."),
