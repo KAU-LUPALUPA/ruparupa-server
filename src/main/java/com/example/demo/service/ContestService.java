@@ -155,9 +155,10 @@ public class ContestService {
         ContestEntry entry = entryRepository.findById(request.getEntryId())
                 .orElseThrow(() -> new CustomApiException(ErrorCode.CONTEST_ENTRY_NOT_FOUND));
 
-        if (entry.getUserUid().equals(voterUid)) {
-            throw new CustomApiException(ErrorCode.CONTEST_CANNOT_VOTE_SELF);
-        }
+        // [테스트용] 자기 자신 투표 차단 임시 비활성화
+        // if (entry.getUserUid().equals(voterUid)) {
+        //     throw new CustomApiException(ErrorCode.CONTEST_CANNOT_VOTE_SELF);
+        // }
 
         ContestGroup targetGroup = groupRepository.findByGroupId(entry.getGroupId())
                 .orElseThrow(() -> new CustomApiException(ErrorCode.CONTEST_GROUP_NOT_FOUND));
