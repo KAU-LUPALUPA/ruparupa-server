@@ -161,7 +161,7 @@ public class RoomService {
         furniture.setDirection(item.getRotation() == null ? 0 : item.getRotation());
         furniture.setStatus("unused");
 
-        String anchorMode = defaultIfBlank(tilePlacement.getAnchorMode(), "CENTER");
+        String anchorMode = defaultIfBlank(tilePlacement.getAnchorMode(), defaultAnchorModeFor(type));
         return new LayoutItem(furniture, footprint.widthTiles(), footprint.depthTiles(), anchorMode);
     }
 
@@ -210,6 +210,7 @@ public class RoomService {
                 .collect(Collectors.toCollection(ArrayList::new));
 
         List<LayoutItem> acceptedItems = new ArrayList<>();
+        boolean migrateLegacyDefaultLayout = isLegacyDefaultLayout(sortedFurniture);
         boolean changed = false;
 
         for (RoomFurniture furniture : sortedFurniture) {
@@ -230,8 +231,19 @@ public class RoomService {
                     furniture,
                     footprint.widthTiles(),
                     footprint.depthTiles(),
-                    "CENTER"
+                    defaultAnchorModeFor(type)
             );
+
+            if (
+                    hasManagedDefaultTile(type) &&
+                            (room.getLayoutRevision() == 0 || migrateLegacyDefaultLayout) &&
+                            !isAtDefaultTile(type, furniture)
+            ) {
+                TileCoord defaultTile = defaultTileFor(type);
+                furniture.setX(defaultTile.x());
+                furniture.setY(defaultTile.y());
+                itemChanged = true;
+            }
 
             if (!isWithinBounds(furniture.getX(), furniture.getY(), footprint) ||
                     overlapsAny(currentItem, acceptedItems)) {
@@ -247,7 +259,7 @@ public class RoomService {
                     furniture,
                     footprint.widthTiles(),
                     footprint.depthTiles(),
-                    "CENTER"
+                    defaultAnchorModeFor(type)
             );
             acceptedItems.add(repairedItem);
             changed = changed || itemChanged;
@@ -395,7 +407,7 @@ public class RoomService {
                                 .widthTiles(footprint.widthTiles())
                                 .depthTiles(footprint.depthTiles())
                                 .build())
-                        .anchorMode("CENTER")
+                        .anchorMode(defaultAnchorModeFor(type))
                         .build())
                 .wallPlacement(null)
                 .scale(1f)
@@ -420,7 +432,8 @@ public class RoomService {
                             .append(tilePlacement.getTile().getX()).append(',')
                             .append(tilePlacement.getTile().getY()).append(',')
                             .append(tilePlacement.getFootprint().getWidthTiles()).append('x')
-                            .append(tilePlacement.getFootprint().getDepthTiles());
+                            .append(tilePlacement.getFootprint().getDepthTiles()).append(',')
+                            .append(defaultIfBlank(tilePlacement.getAnchorMode(), defaultAnchorModeFor(item.getType())));
                 });
 
         try {
@@ -514,11 +527,69 @@ public class RoomService {
 
     private TileCoord defaultTileFor(String type) {
         return switch (type) {
+            case "BED" -> new TileCoord(2, 0);
+            case "TOY_BOX" -> new TileCoord(1, 4);
+            case "FOOD_BAG" -> new TileCoord(4, 3);
+            default -> new TileCoord(0, 0);
+        };
+    }
+
+    private TileCoord legacyDefaultTileFor(String type) {
+        return switch (type) {
             case "BED" -> new TileCoord(0, 0);
             case "TOY_BOX" -> new TileCoord(0, 4);
             case "FOOD_BAG" -> new TileCoord(1, 3);
-            default -> new TileCoord(0, 0);
+            default -> null;
         };
+    }
+
+    private boolean isLegacyDefaultLayout(List<RoomFurniture> furnitureList) {
+        boolean hasBed = false;
+        boolean hasToyBox = false;
+        boolean hasFoodBag = false;
+
+        for (RoomFurniture furniture : furnitureList) {
+            String type = normalizeTypeOrNull(furniture.getType());
+            if (type == null) {
+                continue;
+            }
+
+            TileCoord legacyTile = legacyDefaultTileFor(type);
+            if (legacyTile == null) {
+                continue;
+            }
+
+            if (!isAtTile(furniture, legacyTile)) {
+                return false;
+            }
+
+            if ("BED".equals(type)) {
+                hasBed = true;
+            } else if ("TOY_BOX".equals(type)) {
+                hasToyBox = true;
+            } else if ("FOOD_BAG".equals(type)) {
+                hasFoodBag = true;
+            }
+        }
+
+        return hasBed && hasToyBox && hasFoodBag;
+    }
+
+    private boolean hasManagedDefaultTile(String type) {
+        return legacyDefaultTileFor(type) != null;
+    }
+
+    private boolean isAtDefaultTile(String type, RoomFurniture furniture) {
+        TileCoord defaultTile = defaultTileFor(type);
+        return isAtTile(furniture, defaultTile);
+    }
+
+    private boolean isAtTile(RoomFurniture furniture, TileCoord tile) {
+        return furniture.getX() == tile.x() && furniture.getY() == tile.y();
+    }
+
+    private String defaultAnchorModeFor(String type) {
+        return "BED".equals(type) ? "FRONT_CENTER" : "CENTER";
     }
 
     private String defaultIfBlank(String value, String fallback) {

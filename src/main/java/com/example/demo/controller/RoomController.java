@@ -17,6 +17,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.Collectors;
 
 import org.springframework.transaction.annotation.Transactional;
@@ -182,9 +183,16 @@ public class RoomController {
                                 .y(request.getY())
                                 .build())
                         .footprint(footprint)
-                        .anchorMode("CENTER")
+                        .anchorMode(defaultAnchorModeFor(furnitureType))
                         .build())
                 .rotation(request.getDirection())
                 .build();
+    }
+
+    private String defaultAnchorModeFor(String furnitureType) {
+        if (furnitureType == null) {
+            return "CENTER";
+        }
+        return "BED".equals(furnitureType.trim().replace('-', '_').toUpperCase(Locale.ROOT)) ? "FRONT_CENTER" : "CENTER";
     }
 }

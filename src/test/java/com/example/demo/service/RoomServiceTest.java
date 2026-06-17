@@ -134,7 +134,7 @@ class RoomServiceTest {
                 .getRoomLayout();
         RoomLayoutResponseDto.PlacedRoomItem repairedBed = placedItemByType(repairedLayout, "BED");
 
-        assertEquals(0, repairedBed.getTilePlacement().getTile().getX());
+        assertEquals(2, repairedBed.getTilePlacement().getTile().getX());
         assertEquals(0, repairedBed.getTilePlacement().getTile().getY());
         assertEquals(4, repairedLayout.getLayoutRevision());
     }
@@ -147,7 +147,7 @@ class RoomServiceTest {
                 .filter(furniture -> "TOY_BOX".equals(furniture.getType()))
                 .findFirst()
                 .orElseThrow();
-        toyBox.setX(1);
+        toyBox.setX(2);
         toyBox.setY(1);
         roomFurnitureRepository.save(toyBox);
 
@@ -156,9 +156,110 @@ class RoomServiceTest {
                 .getRoomLayout();
         RoomLayoutResponseDto.PlacedRoomItem repairedToyBox = placedItemByType(repairedLayout, "TOY_BOX");
 
-        assertEquals(0, repairedToyBox.getTilePlacement().getTile().getX());
+        assertEquals(1, repairedToyBox.getTilePlacement().getTile().getX());
         assertEquals(4, repairedToyBox.getTilePlacement().getTile().getY());
         assertTrue(repairedLayout.getLayoutHash().startsWith("sha256:"));
+    }
+
+    @Test
+    void getMyRoomLayoutMigratesRevisionZeroLegacyDefaultCoordinates() {
+        Room room = Room.builder()
+                .roomId(ROOM_ID)
+                .ownerUserId(OWNER_UID)
+                .sceneId("main_room")
+                .layoutRevision(0)
+                .wallAssetKey("room/walls/main_wall")
+                .floorAssetKey("room/floors/main_floor")
+                .updatedAt(LocalDateTime.now().minusMinutes(1))
+                .build();
+        roomRepository.save(room);
+        roomFurnitureRepository.saveAll(List.of(
+                furniture("BED", 0, 0),
+                furniture("TOY_BOX", 0, 4),
+                furniture("FOOD_BAG", 1, 3)
+        ));
+
+        RoomLayoutResponseDto.LayoutData migratedLayout = roomService
+                .getMyRoomLayout(OWNER_UID)
+                .getRoomLayout();
+
+        RoomLayoutResponseDto.PlacedRoomItem bed = placedItemByType(migratedLayout, "BED");
+        RoomLayoutResponseDto.PlacedRoomItem toyBox = placedItemByType(migratedLayout, "TOY_BOX");
+        RoomLayoutResponseDto.PlacedRoomItem foodBag = placedItemByType(migratedLayout, "FOOD_BAG");
+
+        assertEquals(2, bed.getTilePlacement().getTile().getX());
+        assertEquals(0, bed.getTilePlacement().getTile().getY());
+        assertEquals("FRONT_CENTER", bed.getTilePlacement().getAnchorMode());
+        assertEquals(1, toyBox.getTilePlacement().getTile().getX());
+        assertEquals(4, toyBox.getTilePlacement().getTile().getY());
+        assertEquals(4, foodBag.getTilePlacement().getTile().getX());
+        assertEquals(3, foodBag.getTilePlacement().getTile().getY());
+        assertEquals(1, migratedLayout.getLayoutRevision());
+    }
+
+    @Test
+    void getMyRoomLayoutMigratesLegacyDefaultCoordinatesEvenAfterRevisionIncrement() {
+        Room room = Room.builder()
+                .roomId(ROOM_ID)
+                .ownerUserId(OWNER_UID)
+                .sceneId("main_room")
+                .layoutRevision(7)
+                .wallAssetKey("room/walls/main_wall")
+                .floorAssetKey("room/floors/main_floor")
+                .updatedAt(LocalDateTime.now().minusMinutes(1))
+                .build();
+        roomRepository.save(room);
+        roomFurnitureRepository.saveAll(List.of(
+                furniture("BED", 0, 0),
+                furniture("TOY_BOX", 0, 4),
+                furniture("FOOD_BAG", 1, 3)
+        ));
+
+        RoomLayoutResponseDto.LayoutData migratedLayout = roomService
+                .getMyRoomLayout(OWNER_UID)
+                .getRoomLayout();
+
+        RoomLayoutResponseDto.PlacedRoomItem bed = placedItemByType(migratedLayout, "BED");
+        RoomLayoutResponseDto.PlacedRoomItem toyBox = placedItemByType(migratedLayout, "TOY_BOX");
+        RoomLayoutResponseDto.PlacedRoomItem foodBag = placedItemByType(migratedLayout, "FOOD_BAG");
+
+        assertEquals(2, bed.getTilePlacement().getTile().getX());
+        assertEquals(0, bed.getTilePlacement().getTile().getY());
+        assertEquals(1, toyBox.getTilePlacement().getTile().getX());
+        assertEquals(4, toyBox.getTilePlacement().getTile().getY());
+        assertEquals(4, foodBag.getTilePlacement().getTile().getX());
+        assertEquals(3, foodBag.getTilePlacement().getTile().getY());
+        assertEquals(8, migratedLayout.getLayoutRevision());
+    }
+
+    @Test
+    void getMyRoomLayoutDoesNotMoveOtherFurnitureWhenMigratingLegacyDefaults() {
+        Room room = Room.builder()
+                .roomId(ROOM_ID)
+                .ownerUserId(OWNER_UID)
+                .sceneId("main_room")
+                .layoutRevision(7)
+                .wallAssetKey("room/walls/main_wall")
+                .floorAssetKey("room/floors/main_floor")
+                .updatedAt(LocalDateTime.now().minusMinutes(1))
+                .build();
+        roomRepository.save(room);
+        roomFurnitureRepository.saveAll(List.of(
+                furniture("BED", 0, 0),
+                furniture("TOY_BOX", 0, 4),
+                furniture("FOOD_BAG", 1, 3),
+                furniture("PLANT", 5, 5)
+        ));
+
+        RoomLayoutResponseDto.LayoutData migratedLayout = roomService
+                .getMyRoomLayout(OWNER_UID)
+                .getRoomLayout();
+
+        RoomLayoutResponseDto.PlacedRoomItem plant = placedItemByType(migratedLayout, "PLANT");
+
+        assertEquals(5, plant.getTilePlacement().getTile().getX());
+        assertEquals(5, plant.getTilePlacement().getTile().getY());
+        assertEquals(8, migratedLayout.getLayoutRevision());
     }
 
     @Test
@@ -247,8 +348,8 @@ class RoomServiceTest {
                 .build();
         roomRepository.save(room);
 
-        RoomFurniture bed = furniture("BED", 0, 0);
-        RoomFurniture toyBox = furniture("TOY_BOX", 0, 4);
+        RoomFurniture bed = furniture("BED", 2, 0);
+        RoomFurniture toyBox = furniture("TOY_BOX", 1, 4);
         roomFurnitureRepository.saveAll(List.of(bed, toyBox));
     }
 
