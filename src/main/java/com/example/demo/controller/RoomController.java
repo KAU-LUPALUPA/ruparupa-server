@@ -140,38 +140,51 @@ public class RoomController {
 
     @Transactional
     @PostMapping("/me/layout")
-    public ResponseEntity<String> saveMyRoomLayout(
+    public ResponseEntity<String> saveMyRoomLayoutLegacy(
             @RequestAttribute("currentUid") String currentUid,
             @RequestBody List<SaveFurnitureRequest> requestList) {
 
-        Room room = roomRepository.findByOwnerUserId(currentUid)
-                .orElseThrow(() -> new IllegalArgumentException("방 정보를 찾을 수 없습니다."));
+        RoomLayoutRequestDto layoutRequest = RoomLayoutRequestDto.builder()
+                .baseLayoutRevision(null)
+                .placedItems(requestList.stream()
+                        .map(this::toPlacedRoomItem)
+                        .collect(Collectors.toList()))
+                .build();
 
-        roomFurnitureRepository.deleteByRoomId(room.getRoomId());
-
-        for (SaveFurnitureRequest request : requestList) {
-            RoomFurniture furniture = new RoomFurniture();
-
-            String furnitureType = request.getType();
-            if (furnitureType == null || furnitureType.isBlank()) {
-                furnitureType = request.getFurnitureId();
-            }
-
-            furniture.setRoomId(room.getRoomId());
-            furniture.setType(furnitureType);
-            furniture.setX(request.getX());
-            furniture.setY(request.getY());
-            furniture.setDirection(request.getDirection());
-            furniture.setStatus(
-                    request.getStatus() == null ? "placed" : request.getStatus()
-            );
-
-            roomFurnitureRepository.save(furniture);
-        }
-
-        room.setLayoutRevision(room.getLayoutRevision() + 1);
-        roomRepository.save(room);
+        roomService.saveMyRoomLayout(currentUid, layoutRequest);
 
         return ResponseEntity.ok("방 배치 저장 완료");
+    }
+
+    private RoomLayoutRequestDto.PlacedRoomItem toPlacedRoomItem(SaveFurnitureRequest request) {
+        String furnitureType = request.getType();
+        if (furnitureType == null || furnitureType.isBlank()) {
+            furnitureType = request.getFurnitureId();
+        }
+
+        RoomLayoutRequestDto.TileFootprint footprint = null;
+        if (request.getWidth() > 0 && request.getHeight() > 0) {
+            footprint = RoomLayoutRequestDto.TileFootprint.builder()
+                    .widthTiles(request.getWidth())
+                    .depthTiles(request.getHeight())
+                    .build();
+        }
+
+        return RoomLayoutRequestDto.PlacedRoomItem.builder()
+                .placementId(request.getFurnitureId())
+                .shopItemId(furnitureType)
+                .assetKey(furnitureType == null ? null : "room/objects/" + furnitureType.toLowerCase())
+                .type(furnitureType)
+                .anchorType("FLOOR")
+                .tilePlacement(RoomLayoutRequestDto.TilePlacement.builder()
+                        .tile(RoomLayoutRequestDto.TileCoord.builder()
+                                .x(request.getX())
+                                .y(request.getY())
+                                .build())
+                        .footprint(footprint)
+                        .anchorMode("CENTER")
+                        .build())
+                .rotation(request.getDirection())
+                .build();
     }
 }

@@ -24,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @SpringBootTest
 @Transactional
@@ -114,6 +115,50 @@ class RoomServiceTest {
         assertEquals(before.getLayoutRevision() + 1, after.getLayoutRevision());
         assertNotEquals(before.getLayoutHash(), after.getLayoutHash());
         assertEquals(2, after.getPlacedItems().size());
+    }
+
+    @Test
+    void getMyRoomLayoutRepairsOutOfBoundsFurnitureCoordinates() {
+        seedRoomWithFurniture();
+        Room room = roomRepository.findByOwnerUserId(OWNER_UID).orElseThrow();
+        RoomFurniture bed = roomFurnitureRepository.findByRoomId(room.getRoomId()).stream()
+                .filter(furniture -> "BED".equals(furniture.getType()))
+                .findFirst()
+                .orElseThrow();
+        bed.setX(99);
+        bed.setY(-3);
+        roomFurnitureRepository.save(bed);
+
+        RoomLayoutResponseDto.LayoutData repairedLayout = roomService
+                .getMyRoomLayout(OWNER_UID)
+                .getRoomLayout();
+        RoomLayoutResponseDto.PlacedRoomItem repairedBed = placedItemByType(repairedLayout, "BED");
+
+        assertEquals(0, repairedBed.getTilePlacement().getTile().getX());
+        assertEquals(0, repairedBed.getTilePlacement().getTile().getY());
+        assertEquals(4, repairedLayout.getLayoutRevision());
+    }
+
+    @Test
+    void getMyRoomLayoutRepairsOverlappingFurnitureCoordinates() {
+        seedRoomWithFurniture();
+        Room room = roomRepository.findByOwnerUserId(OWNER_UID).orElseThrow();
+        RoomFurniture toyBox = roomFurnitureRepository.findByRoomId(room.getRoomId()).stream()
+                .filter(furniture -> "TOY_BOX".equals(furniture.getType()))
+                .findFirst()
+                .orElseThrow();
+        toyBox.setX(1);
+        toyBox.setY(1);
+        roomFurnitureRepository.save(toyBox);
+
+        RoomLayoutResponseDto.LayoutData repairedLayout = roomService
+                .getMyRoomLayout(OWNER_UID)
+                .getRoomLayout();
+        RoomLayoutResponseDto.PlacedRoomItem repairedToyBox = placedItemByType(repairedLayout, "TOY_BOX");
+
+        assertEquals(0, repairedToyBox.getTilePlacement().getTile().getX());
+        assertEquals(4, repairedToyBox.getTilePlacement().getTile().getY());
+        assertTrue(repairedLayout.getLayoutHash().startsWith("sha256:"));
     }
 
     @Test
@@ -244,5 +289,15 @@ class RoomServiceTest {
                         .build())
                 .rotation(0)
                 .build();
+    }
+
+    private RoomLayoutResponseDto.PlacedRoomItem placedItemByType(
+            RoomLayoutResponseDto.LayoutData layout,
+            String type
+    ) {
+        return layout.getPlacedItems().stream()
+                .filter(item -> type.equals(item.getType()))
+                .findFirst()
+                .orElseThrow();
     }
 }
