@@ -4,15 +4,9 @@ import com.example.demo.User;
 import com.example.demo.UserRepository;
 import com.example.demo.dto.PlazaDto;
 import com.example.demo.entity.Pet;
-import com.example.demo.entity.Plaza;
-import com.example.demo.entity.PlazaChatMessage;
-import com.example.demo.entity.PlazaParticipant;
 import com.example.demo.exception.CustomApiException;
 import com.example.demo.exception.ErrorCode;
 import com.example.demo.repository.PetRepository;
-import com.example.demo.repository.PlazaChatMessageRepository;
-import com.example.demo.repository.PlazaParticipantRepository;
-import com.example.demo.repository.PlazaRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,6 +19,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.stream.Collectors;
 
 @Service
@@ -49,18 +45,19 @@ public class PlazaService {
             "FOLLOW"
     };
 
-    private final PlazaRepository plazaRepository;
-    private final PlazaParticipantRepository participantRepository;
-    private final PlazaChatMessageRepository messageRepository;
+    private static final ConcurrentMap<String, MemoryPlaza> PLAZAS_BY_ID = new ConcurrentHashMap<>();
+    private static final ConcurrentMap<String, String> PLAZA_ID_BY_CODE = new ConcurrentHashMap<>();
+    private static final ConcurrentMap<String, String> PLAZA_ID_BY_USER_ID = new ConcurrentHashMap<>();
+
     private final PetRepository petRepository;
     private final UserRepository userRepository;
     private final PetService petService;
 
     @Transactional
-    public PlazaDto.PlazaRoomResponse joinRandomPlaza(String currentUid) {
+    public synchronized PlazaDto.PlazaRoomResponse joinRandomPlaza(String currentUid) {
         User user = findUser(currentUid);
-        Plaza targetPlaza = plazaRepository.findAll().stream()
-                .filter(plaza -> participantRepository.countByPlaza(plaza) < MAX_PARTICIPANTS)
+        MemoryPlaza targetPlaza = PLAZAS_BY_ID.values().stream()
+                .filter(plaza -> plaza.participants.size() < MAX_PARTICIPANTS)
                 .findFirst()
                 .orElseGet(this::createNewPlaza);
 
@@ -68,21 +65,20 @@ public class PlazaService {
     }
 
     @Transactional
-    public PlazaDto.PlazaRoomResponse joinPlazaByCode(String currentUid, String inputCode) {
+    public synchronized PlazaDto.PlazaRoomResponse joinPlazaByCode(String currentUid, String inputCode) {
         if (inputCode == null || inputCode.trim().isEmpty()) {
             throw new CustomApiException(ErrorCode.EMPTY_CODE);
         }
 
         User user = findUser(currentUid);
         String pureCode = normalizePlazaCode(inputCode);
-        Plaza targetPlaza = plazaRepository.findByPlazaCode(pureCode)
-                .orElseThrow(() -> new CustomApiException(ErrorCode.PLAZA_NOT_FOUND));
+        MemoryPlaza targetPlaza = plazaByCode(pureCode);
+        if (targetPlaza == null) {
+            throw new CustomApiException(ErrorCode.PLAZA_NOT_FOUND);
+        }
 
-        boolean alreadyInTarget = participantRepository.findByUserId(currentUid)
-                .map(participant -> participant.getPlaza().getPlazaId().equals(targetPlaza.getPlazaId()))
-                .orElse(false);
-
-        if (!alreadyInTarget && participantRepository.countByPlaza(targetPlaza) >= MAX_PARTICIPANTS) {
+        boolean alreadyInTarget = targetPlaza.participants.containsKey(currentUid);
+        if (!alreadyInTarget && targetPlaza.participants.size() >= MAX_PARTICIPANTS) {
             throw new CustomApiException(ErrorCode.PLAZA_FULL);
         }
 
@@ -90,23 +86,26 @@ public class PlazaService {
     }
 
     @Transactional(readOnly = true)
-    public PlazaDto.PlazaRoomResponse getCurrentPlaza(String currentUid) {
+    public synchronized PlazaDto.PlazaRoomResponse getCurrentPlaza(String currentUid) {
         findUser(currentUid);
-        return participantRepository.findByUserId(currentUid)
-                .map(participant -> getPlazaSnapshot(participant.getPlaza().getPlazaId(), currentUid))
-                .orElseGet(() -> PlazaDto.PlazaRoomResponse.builder()
-                        .plaza(null)
-                        .build());
+        MemoryPlaza plaza = currentPlazaForUser(currentUid);
+        if (plaza == null) {
+            return PlazaDto.PlazaRoomResponse.builder()
+                    .plaza(null)
+                    .build();
+        }
+
+        return toRoomResponse(plaza);
     }
 
     @Transactional(readOnly = true)
-    public PlazaDto.PlazaRoomResponse getPlazaSnapshot(String plazaId, String currentUid) {
-        Plaza plaza = plazaRepository.findByPlazaId(plazaId)
-                .orElseThrow(() -> new CustomApiException(ErrorCode.PLAZA_NOT_FOUND));
+    public synchronized PlazaDto.PlazaRoomResponse getPlazaSnapshot(String plazaId, String currentUid) {
+        MemoryPlaza plaza = PLAZAS_BY_ID.get(plazaId);
+        if (plaza == null) {
+            throw new CustomApiException(ErrorCode.PLAZA_NOT_FOUND);
+        }
 
-        boolean isParticipant = plaza.getParticipants().stream()
-                .anyMatch(participant -> participant.getUserId().equals(currentUid));
-        if (!isParticipant) {
+        if (!plaza.participants.containsKey(currentUid)) {
             throw new CustomApiException(ErrorCode.NOT_IN_PLAZA);
         }
 
@@ -114,17 +113,21 @@ public class PlazaService {
     }
 
     @Transactional
-    public void leavePlaza(String plazaId, String currentUid) {
-        PlazaParticipant participant = participantRepository.findByUserId(currentUid)
-                .filter(current -> current.getPlaza().getPlazaId().equals(plazaId))
-                .orElseThrow(() -> new CustomApiException(ErrorCode.NOT_IN_PLAZA));
+    public synchronized void leavePlaza(String plazaId, String currentUid) {
+        MemoryPlaza plaza = currentPlazaForUser(currentUid);
+        if (plaza == null || !plaza.plazaId.equals(plazaId)) {
+            throw new CustomApiException(ErrorCode.NOT_IN_PLAZA);
+        }
 
-        Plaza plaza = participant.getPlaza();
-        plaza.getParticipants().remove(participant);
-        participantRepository.delete(participant);
+        MemoryParticipant participant = plaza.participants.remove(currentUid);
+        if (participant == null) {
+            PLAZA_ID_BY_USER_ID.remove(currentUid, plazaId);
+            throw new CustomApiException(ErrorCode.NOT_IN_PLAZA);
+        }
 
-        if (participantRepository.countByPlaza(plaza) == 0) {
-            plazaRepository.delete(plaza);
+        PLAZA_ID_BY_USER_ID.remove(currentUid, plazaId);
+        if (plaza.participants.isEmpty()) {
+            removePlaza(plaza);
             return;
         }
 
@@ -132,14 +135,16 @@ public class PlazaService {
     }
 
     @Transactional
-    public PlazaDto.PlazaChatMessageEnvelopeResponse sendPlazaMessage(
+    public synchronized PlazaDto.PlazaChatMessageEnvelopeResponse sendPlazaMessage(
             String plazaId,
             String currentUid,
             String text
     ) {
-        PlazaParticipant participant = participantRepository.findByUserId(currentUid)
-                .filter(current -> current.getPlaza().getPlazaId().equals(plazaId))
-                .orElseThrow(() -> new CustomApiException(ErrorCode.NOT_IN_PLAZA));
+        MemoryPlaza plaza = PLAZAS_BY_ID.get(plazaId);
+        MemoryParticipant participant = plaza == null ? null : plaza.participants.get(currentUid);
+        if (plaza == null || participant == null) {
+            throw new CustomApiException(ErrorCode.NOT_IN_PLAZA);
+        }
 
         String trimmed = text == null ? "" : text.trim();
         if (trimmed.isEmpty()) {
@@ -149,92 +154,80 @@ public class PlazaService {
             throw new CustomApiException(ErrorCode.MESSAGE_TOO_LONG);
         }
 
-        Plaza plaza = participant.getPlaza();
+        MemoryChatMessage message = new MemoryChatMessage(
+                "plaza_message_" + UUID.randomUUID().toString().substring(0, 8),
+                plazaId,
+                currentUid,
+                participant.nickname(),
+                trimmed,
+                System.currentTimeMillis()
+        );
+        plaza.messages.add(message);
+        while (plaza.messages.size() > 50) {
+            plaza.messages.remove(0);
+        }
         incrementRevision(plaza);
-
-        PlazaChatMessage message = new PlazaChatMessage();
-        message.setMessageId("plaza_message_" + UUID.randomUUID().toString().substring(0, 8));
-        message.setPlazaId(plazaId);
-        message.setSenderUserId(currentUid);
-        message.setSenderNickname(participant.getNickname());
-        message.setText(trimmed);
-        message.setSentAtMillis(System.currentTimeMillis());
-        messageRepository.save(message);
 
         return PlazaDto.PlazaChatMessageEnvelopeResponse.builder()
                 .message(toMessageResponse(message))
-                .roomRevision(plaza.getRoomRevision())
+                .roomRevision(plaza.roomRevision)
                 .build();
     }
 
-    private PlazaDto.PlazaRoomResponse joinTargetPlaza(User user, Plaza targetPlaza) {
-        participantRepository.findByUserId(user.getUid()).ifPresent(existingParticipant -> {
-            Plaza oldPlaza = existingParticipant.getPlaza();
-            if (oldPlaza.getPlazaId().equals(targetPlaza.getPlazaId())) {
-                return;
-            }
-
-            oldPlaza.getParticipants().remove(existingParticipant);
-            participantRepository.delete(existingParticipant);
-            if (participantRepository.countByPlaza(oldPlaza) == 0) {
-                plazaRepository.delete(oldPlaza);
+    private PlazaDto.PlazaRoomResponse joinTargetPlaza(User user, MemoryPlaza targetPlaza) {
+        String currentUid = user.getUid();
+        MemoryPlaza oldPlaza = currentPlazaForUser(currentUid);
+        if (oldPlaza != null && !oldPlaza.plazaId.equals(targetPlaza.plazaId)) {
+            oldPlaza.participants.remove(currentUid);
+            if (oldPlaza.participants.isEmpty()) {
+                removePlaza(oldPlaza);
             } else {
                 incrementRevision(oldPlaza);
             }
-        });
+        }
 
-        boolean alreadyJoined = participantRepository.findByUserId(user.getUid())
-                .map(participant -> participant.getPlaza().getPlazaId().equals(targetPlaza.getPlazaId()))
-                .orElse(false);
-        if (!alreadyJoined) {
+        if (!targetPlaza.participants.containsKey(currentUid)) {
             Pet pet = petRepository.findByUserId(user.getId())
                     .orElseGet(() -> petService.createInitialSetupAndReturnPet(user));
-
-            PlazaParticipant participant = new PlazaParticipant();
-            participant.setPlaza(targetPlaza);
-            participant.setUserId(user.getUid());
-            participant.setNickname(user.getNickname());
-            participant.setPetId(pet.getId());
-            participant.setJoinedAtMillis(System.currentTimeMillis());
-            participant.setPositionX(0.5f);
-            participant.setPositionY(0.5f);
-            participant.setLastUpdatedAtMillis(System.currentTimeMillis());
-            participantRepository.save(participant);
-            targetPlaza.getParticipants().add(participant);
+            long nowMillis = System.currentTimeMillis();
+            MemoryParticipant participant = new MemoryParticipant(
+                    currentUid,
+                    user.getNickname(),
+                    pet.getId(),
+                    nowMillis
+            );
+            targetPlaza.participants.put(currentUid, participant);
             incrementRevision(targetPlaza);
         }
 
+        PLAZA_ID_BY_USER_ID.put(currentUid, targetPlaza.plazaId);
         return toRoomResponse(targetPlaza);
     }
 
-    private PlazaDto.PlazaRoomResponse toRoomResponse(Plaza plaza) {
+    private PlazaDto.PlazaRoomResponse toRoomResponse(MemoryPlaza plaza) {
         long nowMillis = System.currentTimeMillis();
-        List<PlazaParticipant> participants = plaza.getParticipants().stream()
+        List<MemoryParticipant> participants = plaza.participants.values().stream()
                 .sorted(Comparator.comparing(
-                        PlazaParticipant::getUserId,
+                        MemoryParticipant::userId,
                         Comparator.nullsLast(String::compareTo)
                 ))
                 .collect(Collectors.toList());
         InteractionSnapshot interactionSnapshot = buildInteractionSnapshot(plaza, participants, nowMillis);
-        List<PlazaChatMessage> messages = new ArrayList<>(
-                messageRepository.findTop50ByPlazaIdOrderBySentAtMillisDesc(plaza.getPlazaId())
-        );
-        Collections.reverse(messages);
 
         PlazaDto.PlazaDetail detail = PlazaDto.PlazaDetail.builder()
-                .plazaId(plaza.getPlazaId())
-                .plazaCode("PZ" + plaza.getPlazaCode())
-                .displayPlazaCode("PZ-" + plaza.getPlazaCode())
+                .plazaId(plaza.plazaId)
+                .plazaCode("PZ" + plaza.plazaCode)
+                .displayPlazaCode("PZ-" + plaza.plazaCode)
                 .serverNowMillis(nowMillis)
                 .participants(participants.stream()
                         .map(participant -> toParticipantResponse(plaza, participant, nowMillis, interactionSnapshot))
                         .collect(Collectors.toList()))
-                .messages(messages.stream()
+                .messages(plaza.messages.stream()
                         .map(this::toMessageResponse)
                         .collect(Collectors.toList()))
                 .interactions(interactionSnapshot.responses())
                 .maxParticipants(MAX_PARTICIPANTS)
-                .roomRevision(plaza.getRoomRevision())
+                .roomRevision(plaza.roomRevision)
                 .build();
 
         return PlazaDto.PlazaRoomResponse.builder()
@@ -243,16 +236,16 @@ public class PlazaService {
     }
 
     private PlazaDto.PlazaParticipantResponse toParticipantResponse(
-            Plaza plaza,
-            PlazaParticipant participant,
+            MemoryPlaza plaza,
+            MemoryParticipant participant,
             long nowMillis,
             InteractionSnapshot interactionSnapshot
     ) {
-        Pet pet = petRepository.findById(participant.getPetId())
+        Pet pet = petRepository.findById(participant.petId())
                 .orElseThrow(() -> new CustomApiException(ErrorCode.PET_NOT_FOUND));
         String participantUserId = participantKey(participant);
         MovementSnapshot movementSnapshot = participantMovementSnapshot(
-                plaza.getPlazaId(),
+                plaza.plazaId,
                 participantUserId,
                 nowMillis,
                 interactionSnapshot
@@ -260,7 +253,7 @@ public class PlazaService {
 
         return PlazaDto.PlazaParticipantResponse.builder()
                 .userId(participantUserId)
-                .nickname(participant.getNickname())
+                .nickname(participant.nickname())
                 .pet(PlazaDto.PlazaPetSnapshotResponse.builder()
                         .petId(pet.getPetUid())
                         .name(pet.getName())
@@ -270,13 +263,13 @@ public class PlazaService {
                 .position(toPositionResponse(movementSnapshot.current()))
                 .movement(movementSnapshot.movement())
                 .positionUpdatedAtMillis(movementSnapshot.updatedAtMillis())
-                .joinedAtMillis(participant.getJoinedAtMillis())
+                .joinedAtMillis(participant.joinedAtMillis())
                 .build();
     }
 
     private InteractionSnapshot buildInteractionSnapshot(
-            Plaza plaza,
-            List<PlazaParticipant> participants,
+            MemoryPlaza plaza,
+            List<MemoryParticipant> participants,
             long nowMillis
     ) {
         if (participants.size() < 2) {
@@ -290,32 +283,32 @@ public class PlazaService {
 
         long slotIndex = Math.floorDiv(nowMillis, PLAZA_INTERACTION_CYCLE_MS);
         long startedAtMillis = slotIndex * PLAZA_INTERACTION_CYCLE_MS;
-        int actorIndex = stableIndex(plaza.getPlazaId(), "interaction-actor", slotIndex, participants.size());
+        int actorIndex = stableIndex(plaza.plazaId, "interaction-actor", slotIndex, participants.size());
         int targetOffset = 1 + stableIndex(
-                plaza.getPlazaId(),
+                plaza.plazaId,
                 "interaction-target-offset",
                 slotIndex,
                 participants.size() - 1
         );
         int targetIndex = (actorIndex + targetOffset) % participants.size();
-        PlazaParticipant actor = participants.get(actorIndex);
-        PlazaParticipant target = participants.get(targetIndex);
+        MemoryParticipant actor = participants.get(actorIndex);
+        MemoryParticipant target = participants.get(targetIndex);
         String actorUserId = participantKey(actor);
         String targetUserId = participantKey(target);
         String type = PLAZA_INTERACTION_TYPES[stableIndex(
-                plaza.getPlazaId(),
+                plaza.plazaId,
                 "interaction-type",
                 slotIndex,
                 PLAZA_INTERACTION_TYPES.length
         )];
 
         Position actorPosition = deterministicMovementSnapshot(
-                plaza.getPlazaId(),
+                plaza.plazaId,
                 actorUserId,
                 startedAtMillis
         ).current();
         Position targetPosition = deterministicMovementSnapshot(
-                plaza.getPlazaId(),
+                plaza.plazaId,
                 targetUserId,
                 startedAtMillis
         ).current();
@@ -334,7 +327,7 @@ public class PlazaService {
         );
         List<PlazaDto.PlazaInteractionResponse> responses = elapsedInCycle < PLAZA_INTERACTION_DURATION_MS
                 ? List.of(PlazaDto.PlazaInteractionResponse.builder()
-                        .id("plaza_interaction_" + plaza.getPlazaId() + "_" + slotIndex)
+                        .id("plaza_interaction_" + plaza.plazaId + "_" + slotIndex)
                         .type(type)
                         .actorUserId(actorUserId)
                         .targetUserId(targetUserId)
@@ -596,11 +589,11 @@ public class PlazaService {
         );
     }
 
-    private String participantKey(PlazaParticipant participant) {
-        if (participant.getUserId() != null && !participant.getUserId().isBlank()) {
-            return participant.getUserId();
+    private String participantKey(MemoryParticipant participant) {
+        if (participant.userId() != null && !participant.userId().isBlank()) {
+            return participant.userId();
         }
-        return "participant_" + participant.getId();
+        return "participant_" + participant.joinedAtMillis();
     }
 
     private int stableIndex(String first, String second, long slotIndex, int size) {
@@ -618,13 +611,13 @@ public class PlazaService {
         return Math.max(min, Math.min(max, value));
     }
 
-    private PlazaDto.PlazaChatMessageResponse toMessageResponse(PlazaChatMessage message) {
+    private PlazaDto.PlazaChatMessageResponse toMessageResponse(MemoryChatMessage message) {
         return PlazaDto.PlazaChatMessageResponse.builder()
-                .id(message.getMessageId())
-                .senderUserId(message.getSenderUserId())
-                .senderNickname(message.getSenderNickname())
-                .text(message.getText())
-                .sentAtMillis(message.getSentAtMillis())
+                .id(message.messageId())
+                .senderUserId(message.senderUserId())
+                .senderNickname(message.senderNickname())
+                .text(message.text())
+                .sentAtMillis(message.sentAtMillis())
                 .build();
     }
 
@@ -650,13 +643,43 @@ public class PlazaService {
         return compact.substring(2);
     }
 
-    private Plaza createNewPlaza() {
-        Plaza plaza = new Plaza();
-        plaza.setPlazaId("plaza_" + UUID.randomUUID().toString().substring(0, 8));
-        plaza.setPlazaCode(createUniquePlazaCode());
-        plaza.setRoomRevision(0L);
-        plaza.setCreatedAtMillis(System.currentTimeMillis());
-        return plazaRepository.save(plaza);
+    private MemoryPlaza currentPlazaForUser(String userId) {
+        String plazaId = PLAZA_ID_BY_USER_ID.get(userId);
+        if (plazaId == null) {
+            return null;
+        }
+
+        MemoryPlaza plaza = PLAZAS_BY_ID.get(plazaId);
+        if (plaza == null || !plaza.participants.containsKey(userId)) {
+            PLAZA_ID_BY_USER_ID.remove(userId, plazaId);
+            return null;
+        }
+
+        return plaza;
+    }
+
+    private MemoryPlaza plazaByCode(String code) {
+        String plazaId = PLAZA_ID_BY_CODE.get(code);
+        if (plazaId == null) {
+            return null;
+        }
+
+        MemoryPlaza plaza = PLAZAS_BY_ID.get(plazaId);
+        if (plaza == null) {
+            PLAZA_ID_BY_CODE.remove(code, plazaId);
+        }
+        return plaza;
+    }
+
+    private MemoryPlaza createNewPlaza() {
+        MemoryPlaza plaza = new MemoryPlaza(
+                "plaza_" + UUID.randomUUID().toString().substring(0, 8),
+                createUniquePlazaCode(),
+                System.currentTimeMillis()
+        );
+        PLAZAS_BY_ID.put(plaza.plazaId, plaza);
+        PLAZA_ID_BY_CODE.put(plaza.plazaCode, plaza.plazaId);
+        return plaza;
     }
 
     private String createUniquePlazaCode() {
@@ -665,16 +688,54 @@ public class PlazaService {
                     .replace("-", "")
                     .substring(0, 4)
                     .toUpperCase();
-            if (plazaRepository.findByPlazaCode(code).isEmpty()) {
+            if (!PLAZA_ID_BY_CODE.containsKey(code)) {
                 return code;
             }
         }
         throw new CustomApiException(ErrorCode.UNKNOWN);
     }
 
-    private void incrementRevision(Plaza plaza) {
-        Long currentRevision = plaza.getRoomRevision() == null ? 0L : plaza.getRoomRevision();
-        plaza.setRoomRevision(currentRevision + 1);
+    private void removePlaza(MemoryPlaza plaza) {
+        plaza.participants.keySet().forEach(userId -> PLAZA_ID_BY_USER_ID.remove(userId, plaza.plazaId));
+        PLAZAS_BY_ID.remove(plaza.plazaId);
+        PLAZA_ID_BY_CODE.remove(plaza.plazaCode, plaza.plazaId);
+    }
+
+    private void incrementRevision(MemoryPlaza plaza) {
+        plaza.roomRevision += 1;
+    }
+
+    private static final class MemoryPlaza {
+        private final String plazaId;
+        private final String plazaCode;
+        private final long createdAtMillis;
+        private long roomRevision = 0L;
+        private final Map<String, MemoryParticipant> participants = new LinkedHashMap<>();
+        private final List<MemoryChatMessage> messages = new ArrayList<>();
+
+        private MemoryPlaza(String plazaId, String plazaCode, long createdAtMillis) {
+            this.plazaId = plazaId;
+            this.plazaCode = plazaCode;
+            this.createdAtMillis = createdAtMillis;
+        }
+    }
+
+    private record MemoryParticipant(
+            String userId,
+            String nickname,
+            Long petId,
+            long joinedAtMillis
+    ) {
+    }
+
+    private record MemoryChatMessage(
+            String messageId,
+            String plazaId,
+            String senderUserId,
+            String senderNickname,
+            String text,
+            long sentAtMillis
+    ) {
     }
 
     private record Position(float x, float y) {
