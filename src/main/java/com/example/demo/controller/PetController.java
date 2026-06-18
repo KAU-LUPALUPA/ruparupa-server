@@ -16,7 +16,7 @@ public class PetController {
 
     // 1. 밥 먹이기 API
     @PostMapping("/{petId}/feed")
-    public ResponseEntity<Pet> feedPet(
+    public ResponseEntity<MyPetResponseDto> feedPet(
             @RequestAttribute("currentUid") String currentUid,
             @PathVariable(name = "petId") Long petId) {
         return ResponseEntity.ok(petService.feedPet(currentUid, petId));
@@ -24,7 +24,7 @@ public class PetController {
 
     // 2. 잠재우기 API
     @PostMapping("/{petId}/sleep")
-    public ResponseEntity<Pet> sleepPet(
+    public ResponseEntity<MyPetResponseDto> sleepPet(
             @RequestAttribute("currentUid") String currentUid,
             @PathVariable(name = "petId") Long petId) {
         return ResponseEntity.ok(petService.sleepPet(currentUid, petId));
@@ -32,10 +32,18 @@ public class PetController {
 
     // 3. 놀아주기 API
     @PostMapping("/{petId}/play")
-    public ResponseEntity<Pet> playWithPet(
+    public ResponseEntity<MyPetResponseDto> playWithPet(
             @RequestAttribute("currentUid") String currentUid,
             @PathVariable(name = "petId") Long petId) {
         return ResponseEntity.ok(petService.playWithPet(currentUid, petId));
+    }
+
+    // 4. 씻기기 API
+    @PostMapping("/{petId}/clean")
+    public ResponseEntity<MyPetResponseDto> cleanPet(
+            @RequestAttribute("currentUid") String currentUid,
+            @PathVariable(name = "petId") Long petId) {
+        return ResponseEntity.ok(petService.cleanPet(currentUid, petId));
     }
 
     // 내 펫 정보 조회 (없으면 생성)

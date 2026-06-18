@@ -32,6 +32,7 @@ public class RoomController {
     private final RoomRepository roomRepository;
     private final RoomFurnitureRepository roomFurnitureRepository;
     private final RoomService roomService;
+    private final com.example.demo.service.PetService petService;
 
     /**
      * 1. 방 상세 레이아웃 조회 API
@@ -77,9 +78,10 @@ public class RoomController {
             @RequestAttribute("currentUid") String currentUid,
             @RequestParam(name = "petId") Long petId) {
             
-        // 1. 펫 정보 가져오기
+        // 1. 펫 정보 가져오기 및 자정 갱신 확인
         Pet pet = petRepository.findById(petId)
                 .orElseThrow(() -> new IllegalArgumentException("펫이 존재하지 않습니다."));
+        pet = petService.syncMidnightUpdates(pet);
 
         // 소유권 검증: 내 펫(방)이 아니면 예외 발생
         if (!pet.getUser().getUid().equals(currentUid)) {
@@ -110,6 +112,7 @@ public class RoomController {
                 .name(pet.getName())
                 .satiety(pet.getSatiety())
                 .vitality(pet.getVitality())
+                .cleanliness(pet.getCleanliness())
                 .isSleep(pet.isSleep())
                 .build();
 

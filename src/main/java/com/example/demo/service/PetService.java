@@ -9,9 +9,12 @@ import com.example.demo.repository.PetRepository;
 import com.example.demo.repository.RoomFurnitureRepository;
 import com.example.demo.repository.RoomRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.stereotype.Service;
 import com.example.demo.dto.MyPetResponseDto;
+import com.example.demo.entity.InteractionEvents;
+import com.example.demo.entity.PetTraits;
+import java.time.LocalDate;
 
 import java.util.List;
 import java.util.Random;
@@ -37,7 +40,7 @@ public class PetService {
         return convertToDto(pet);
     }
 
-    private MyPetResponseDto convertToDto(Pet pet) {
+    public MyPetResponseDto convertToDto(Pet pet) {
         return MyPetResponseDto.builder()
                 .petId(pet.getPetUid())
                 .ownerUserId(pet.getUser().getUid())
@@ -49,8 +52,23 @@ public class PetService {
                 .status(MyPetResponseDto.StatusDto.builder()
                         .satiety(pet.getSatiety())
                         .vitality(pet.getVitality())
+                        .cleanliness(pet.getCleanliness())
                         .isEgg(pet.isEgg())
                         .isSleep(pet.isSleep()) // 필드 직접 매핑
+                        .build())
+                .traits(MyPetResponseDto.PetTraitsDto.builder()
+                        .activity(pet.getTraits().getActivity())
+                        .appetite(pet.getTraits().getAppetite())
+                        .attention(pet.getTraits().getAttention())
+                        .curiosity(pet.getTraits().getCuriosity())
+                        .patience(pet.getTraits().getPatience())
+                        .build())
+                .interactions(MyPetResponseDto.InteractionEventsDto.builder()
+                        .feedCount(pet.getInteractionEvents().getFeedCount())
+                        .playCount(pet.getInteractionEvents().getPlayCount())
+                        .cleanCommandCount(pet.getInteractionEvents().getCleanCommandCount())
+                        .sleepCommandCount(pet.getInteractionEvents().getSleepCommandCount())
+                        .daysActive(pet.getInteractionEvents().getDaysActive())
                         .build())
                 .build();
     }
@@ -109,13 +127,16 @@ public class PetService {
 
     // 1. 밥 먹이기 (사료 봉투 상호작용)
     @Transactional
-    public Pet feedPet(String currentUid, Long petId) {
+    public MyPetResponseDto feedPet(String currentUid, Long petId) {
         Pet pet = petRepository.findById(petId).orElseThrow(() -> new IllegalArgumentException("펫이 존재하지 않습니다."));
         
         // 소유권 검증 로직
         if (!pet.getUser().getUid().equals(currentUid)) {
             throw new IllegalArgumentException("본인의 펫만 조작할 수 있습니다.");
         }
+
+        // 자정 동기화 (지연 평가)
+        pet = syncMidnightUpdates(pet);
 
         // 상태 검증
         if (pet.isSleep()) throw new IllegalStateException("펫이 자고 있습니다.");
@@ -125,18 +146,22 @@ public class PetService {
         }
 
         pet.setSatiety(Math.min(pet.getSatiety() + 30, 100));
-        return petRepository.save(pet);
+        pet.getInteractionEvents().setFeedCount(pet.getInteractionEvents().getFeedCount() + 1);
+        return convertToDto(petRepository.save(pet));
     }
 
     // 2. 잠재우기 (침대 상호작용)
     @Transactional
-    public Pet sleepPet(String currentUid, Long petId) {
+    public MyPetResponseDto sleepPet(String currentUid, Long petId) {
         Pet pet = petRepository.findById(petId).orElseThrow(() -> new IllegalArgumentException("펫이 존재하지 않습니다."));
         
         // 소유권 검증 로직
         if (!pet.getUser().getUid().equals(currentUid)) {
             throw new IllegalArgumentException("본인의 펫만 조작할 수 있습니다.");
         }
+
+        // 자정 동기화 (지연 평가)
+        pet = syncMidnightUpdates(pet);
 
         // 상태 검증
         if (pet.isSleep()) {
@@ -144,18 +169,22 @@ public class PetService {
         }
 
         pet.setVitality(Math.min(pet.getVitality() + 30, 100));
-        return petRepository.save(pet);
+        pet.getInteractionEvents().setSleepCommandCount(pet.getInteractionEvents().getSleepCommandCount() + 1);
+        return convertToDto(petRepository.save(pet));
     }
 
     // 3. 놀아주기 (장난감 박스 상호작용)
     @Transactional
-    public Pet playWithPet(String currentUid, Long petId) {
+    public MyPetResponseDto playWithPet(String currentUid, Long petId) {
         Pet pet = petRepository.findById(petId).orElseThrow(() -> new IllegalArgumentException("펫이 존재하지 않습니다."));
         
         // 소유권 검증 로직
         if (!pet.getUser().getUid().equals(currentUid)) {
             throw new IllegalArgumentException("본인의 펫만 조작할 수 있습니다.");
         }
+
+        // 자정 동기화 (지연 평가)
+        pet = syncMidnightUpdates(pet);
 
         // 상태 검증
         if (pet.isSleep()) {
@@ -167,6 +196,62 @@ public class PetService {
 
         pet.setVitality(Math.max(pet.getVitality() - 20, 0));
         pet.setSatiety(Math.max(pet.getSatiety() - 10, 0));
-        return petRepository.save(pet);
+        pet.getInteractionEvents().setPlayCount(pet.getInteractionEvents().getPlayCount() + 1);
+        return convertToDto(petRepository.save(pet));
+    }
+
+    // 4. 씻기기 (욕조/청소 상호작용)
+    @Transactional
+    public MyPetResponseDto cleanPet(String currentUid, Long petId) {
+        Pet pet = petRepository.findById(petId).orElseThrow(() -> new IllegalArgumentException("펫이 존재하지 않습니다."));
+        
+        if (!pet.getUser().getUid().equals(currentUid)) {
+            throw new IllegalArgumentException("본인의 펫만 조작할 수 있습니다.");
+        }
+
+        pet = syncMidnightUpdates(pet);
+
+        if (pet.isSleep()) {
+            throw new IllegalStateException("펫이 자고 있습니다.");
+        }
+        if (pet.getCleanliness() >= 100) {
+            throw new IllegalStateException("펫이 이미 깨끗합니다.");
+        }
+
+        pet.setCleanliness(Math.min(pet.getCleanliness() + 50, 100));
+        pet.getInteractionEvents().setCleanCommandCount(pet.getInteractionEvents().getCleanCommandCount() + 1);
+        return convertToDto(petRepository.save(pet));
+    }
+
+    // 자정(Midnight) 특성 EMA 동기화 및 행동 제한 초기화 로직
+    @Transactional
+    public Pet syncMidnightUpdates(Pet pet) {
+        LocalDate now = LocalDate.now();
+        if (pet.getLastEmaUpdatedDate() != null && pet.getLastEmaUpdatedDate().isBefore(now)) {
+            InteractionEvents events = pet.getInteractionEvents();
+            PetTraits traits = pet.getTraits();
+            float alpha = 0.05f;
+
+            // EMA 반영 시 하루 최대 5회의 행동까지만 유효 타격으로 계산하여 과반영 방지
+            int effectivePlay = Math.min(events.getPlayCount(), 5);
+            int effectiveFeed = Math.min(events.getFeedCount(), 5);
+            int effectiveClean = Math.min(events.getCleanCommandCount(), 5);
+            int effectiveSleep = Math.min(events.getSleepCommandCount(), 5);
+
+            float targetActivity = Math.max(0f, Math.min(1f, (effectivePlay * 0.5f) / 7f / 3.0f));
+            float targetAppetite = Math.max(0f, Math.min(1f, (effectiveFeed * 1.0f) / 7f / 2.0f));
+            float targetAttention = Math.max(0.1f, Math.min(1f, (events.getDaysActive() * 1.0f + (effectiveClean + effectiveSleep) * 0.3f) / 7f / 4.0f));
+
+            traits.setActivity(Math.max(0f, Math.min(1f, traits.getActivity() * (1 - alpha) + targetActivity * alpha)));
+            traits.setAppetite(Math.max(0f, Math.min(1f, traits.getAppetite() * (1 - alpha) + targetAppetite * alpha)));
+            traits.setAttention(Math.max(0.1f, Math.min(1f, traits.getAttention() * (1 - alpha) + targetAttention * alpha)));
+
+            events.setDaysActive(events.getDaysActive() + 1);
+            events.resetDaily();
+            pet.setLastEmaUpdatedDate(now);
+            
+            return petRepository.save(pet);
+        }
+        return pet;
     }
 }
