@@ -1,12 +1,8 @@
 package com.example.demo.service;
 
-import com.example.demo.User;
-import com.example.demo.UserRepository;
 import com.example.demo.dto.PlazaDto;
-import com.example.demo.entity.Pet;
 import com.example.demo.exception.CustomApiException;
 import com.example.demo.exception.ErrorCode;
-import com.example.demo.repository.PetRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,6 +30,8 @@ public class PlazaService {
     private static final long PLAZA_INTERACTION_DURATION_MS = 4_800L;
     private static final long PLAZA_INTERACTION_APPROACH_MS = 1_200L;
     private static final long PLAZA_INTERACTION_SETTLE_MS = 1_200L;
+    private static final String DEFAULT_PLAZA_PET_NAME = "루파";
+    private static final String DEFAULT_PLAZA_CHARACTER_ASSET_KEY = "room/characters/lupa_default";
     private static final float PLAZA_MIN_X = 0.16f;
     private static final float PLAZA_MAX_X = 0.84f;
     private static final float PLAZA_MIN_Y = 0.48f;
@@ -49,28 +47,26 @@ public class PlazaService {
     private static final ConcurrentMap<String, String> PLAZA_ID_BY_CODE = new ConcurrentHashMap<>();
     private static final ConcurrentMap<String, String> PLAZA_ID_BY_USER_ID = new ConcurrentHashMap<>();
 
-    private final PetRepository petRepository;
-    private final UserRepository userRepository;
-    private final PetService petService;
-
     @Transactional
-    public synchronized PlazaDto.PlazaRoomResponse joinRandomPlaza(String currentUid) {
-        User user = findUser(currentUid);
+    public synchronized PlazaDto.PlazaRoomResponse joinRandomPlaza(String currentUid, String currentNickname) {
         MemoryPlaza targetPlaza = PLAZAS_BY_ID.values().stream()
                 .filter(plaza -> plaza.participants.size() < MAX_PARTICIPANTS)
                 .findFirst()
                 .orElseGet(this::createNewPlaza);
 
-        return joinTargetPlaza(user, targetPlaza);
+        return joinTargetPlaza(currentUid, displayNickname(currentUid, currentNickname), targetPlaza);
     }
 
     @Transactional
-    public synchronized PlazaDto.PlazaRoomResponse joinPlazaByCode(String currentUid, String inputCode) {
+    public synchronized PlazaDto.PlazaRoomResponse joinPlazaByCode(
+            String currentUid,
+            String currentNickname,
+            String inputCode
+    ) {
         if (inputCode == null || inputCode.trim().isEmpty()) {
             throw new CustomApiException(ErrorCode.EMPTY_CODE);
         }
 
-        User user = findUser(currentUid);
         String pureCode = normalizePlazaCode(inputCode);
         MemoryPlaza targetPlaza = plazaByCode(pureCode);
         if (targetPlaza == null) {
@@ -82,12 +78,11 @@ public class PlazaService {
             throw new CustomApiException(ErrorCode.PLAZA_FULL);
         }
 
-        return joinTargetPlaza(user, targetPlaza);
+        return joinTargetPlaza(currentUid, displayNickname(currentUid, currentNickname), targetPlaza);
     }
 
     @Transactional(readOnly = true)
     public synchronized PlazaDto.PlazaRoomResponse getCurrentPlaza(String currentUid) {
-        findUser(currentUid);
         MemoryPlaza plaza = currentPlazaForUser(currentUid);
         if (plaza == null) {
             return PlazaDto.PlazaRoomResponse.builder()
@@ -174,8 +169,11 @@ public class PlazaService {
                 .build();
     }
 
-    private PlazaDto.PlazaRoomResponse joinTargetPlaza(User user, MemoryPlaza targetPlaza) {
-        String currentUid = user.getUid();
+    private PlazaDto.PlazaRoomResponse joinTargetPlaza(
+            String currentUid,
+            String nickname,
+            MemoryPlaza targetPlaza
+    ) {
         MemoryPlaza oldPlaza = currentPlazaForUser(currentUid);
         if (oldPlaza != null && !oldPlaza.plazaId.equals(targetPlaza.plazaId)) {
             oldPlaza.participants.remove(currentUid);
@@ -187,13 +185,13 @@ public class PlazaService {
         }
 
         if (!targetPlaza.participants.containsKey(currentUid)) {
-            Pet pet = petRepository.findByUserId(user.getId())
-                    .orElseGet(() -> petService.createInitialSetupAndReturnPet(user));
             long nowMillis = System.currentTimeMillis();
             MemoryParticipant participant = new MemoryParticipant(
                     currentUid,
-                    user.getNickname(),
-                    pet.getId(),
+                    nickname,
+                    "plaza_pet_" + currentUid,
+                    DEFAULT_PLAZA_PET_NAME,
+                    DEFAULT_PLAZA_CHARACTER_ASSET_KEY,
                     nowMillis
             );
             targetPlaza.participants.put(currentUid, participant);
@@ -241,8 +239,6 @@ public class PlazaService {
             long nowMillis,
             InteractionSnapshot interactionSnapshot
     ) {
-        Pet pet = petRepository.findById(participant.petId())
-                .orElseThrow(() -> new CustomApiException(ErrorCode.PET_NOT_FOUND));
         String participantUserId = participantKey(participant);
         MovementSnapshot movementSnapshot = participantMovementSnapshot(
                 plaza.plazaId,
@@ -255,9 +251,9 @@ public class PlazaService {
                 .userId(participantUserId)
                 .nickname(participant.nickname())
                 .pet(PlazaDto.PlazaPetSnapshotResponse.builder()
-                        .petId(pet.getPetUid())
-                        .name(pet.getName())
-                        .characterAssetKey(pet.getCharacterAssetKey())
+                        .petId(participant.petId())
+                        .name(participant.petName())
+                        .characterAssetKey(participant.characterAssetKey())
                         .appearance(PlazaDto.PetAppearanceResponse.defaultAppearance())
                         .build())
                 .position(toPositionResponse(movementSnapshot.current()))
@@ -621,11 +617,6 @@ public class PlazaService {
                 .build();
     }
 
-    private User findUser(String currentUid) {
-        return userRepository.findByUid(currentUid)
-                .orElseThrow(() -> new CustomApiException(ErrorCode.USER_NOT_FOUND));
-    }
-
     private String normalizePlazaCode(String inputCode) {
         String compact = inputCode.trim()
                 .replace("-", "")
@@ -705,6 +696,16 @@ public class PlazaService {
         plaza.roomRevision += 1;
     }
 
+    private String displayNickname(String currentUid, String currentNickname) {
+        if (currentNickname != null && !currentNickname.isBlank()) {
+            return currentNickname;
+        }
+        if (currentUid == null || currentUid.isBlank()) {
+            return "사용자";
+        }
+        return currentUid;
+    }
+
     private static final class MemoryPlaza {
         private final String plazaId;
         private final String plazaCode;
@@ -723,7 +724,9 @@ public class PlazaService {
     private record MemoryParticipant(
             String userId,
             String nickname,
-            Long petId,
+            String petId,
+            String petName,
+            String characterAssetKey,
             long joinedAtMillis
     ) {
     }
