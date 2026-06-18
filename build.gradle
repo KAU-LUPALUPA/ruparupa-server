@@ -18,30 +18,19 @@ repositories {
 }
 
 dependencies {
-	implementation 'org.springframework.boot:spring-boot-h2console'
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
-	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+	implementation 'org.springframework.boot:spring-boot-starter-web'
+	implementation 'org.springframework.boot:spring-boot-starter-oauth2-client'
+	implementation 'org.springframework.boot:spring-boot-starter-security'
 	compileOnly 'org.projectlombok:lombok'
 	developmentOnly 'org.springframework.boot:spring-boot-devtools'
-	runtimeOnly 'com.h2database:h2'
+	runtimeOnly 'com.mysql:mysql-connector-j'
 	annotationProcessor 'org.projectlombok:lombok'
-	testImplementation 'org.springframework.boot:spring-boot-starter-data-jpa-test'
-	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
 	testCompileOnly 'org.projectlombok:lombok'
+	testRuntimeOnly 'com.h2database:h2'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 	testAnnotationProcessor 'org.projectlombok:lombok'
-	// 카카오 로그인
-	implementation 'org.springframework.boot:spring-boot-starter-oauth2-client'
-    implementation 'org.springframework.boot:spring-boot-starter-security'
-    implementation 'org.springframework.boot:spring-boot-starter-web'
-    // JSON 처리를 위한 Lombok
-    compileOnly 'org.projectlombok:lombok'
-    annotationProcessor 'org.projectlombok:lombok'
-	// MySQL 드라이버 추가
-    runtimeOnly 'com.mysql:mysql-connector-j'
-    
-    // JPA 설정도
-    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
 
 	// JWT 라이브러리
 	implementation 'io.jsonwebtoken:jjwt-api:0.11.5'
@@ -49,8 +38,10 @@ dependencies {
 
 	implementation 'com.fasterxml.jackson.core:jackson-databind'
 
-	// AWS S3 연동을 위한 라이브러리 (Spring Cloud AWS)
-    implementation 'org.springframework.cloud:spring-cloud-starter-aws:2.2.6.RELEASE'
+	// AWS S3 연동
+	// spring-cloud-aws는 Spring Boot 4.0 미지원 → AWS SDK v2 직접 사용
+	implementation 'software.amazon.awssdk:s3:2.25.60'
+	implementation 'software.amazon.awssdk:sts:2.25.60'
 }
 
 tasks.named('test') {

@@ -23,6 +23,7 @@ import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 @Service
@@ -37,20 +38,26 @@ public class RoomService {
     private final RoomRepository roomRepository;
     private final RoomFurnitureRepository roomFurnitureRepository;
 
-    @Transactional(readOnly = true)
+    @Transactional
     public RoomLayoutResponseDto getMyRoomLayout(String currentUid) {
         Room room = getRoomForOwner(currentUid);
-        List<RoomFurniture> furnitureList = roomFurnitureRepository.findByRoomId(room.getRoomId());
+        List<RoomFurniture> furnitureList = repairFurnitureLayoutIfNeeded(
+                room,
+                roomFurnitureRepository.findByRoomId(room.getRoomId())
+        );
         return toResponse(room, furnitureList);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public RoomLayoutValidationResponseDto validateMyRoomLayout(
             String currentUid,
             RoomLayoutValidationRequestDto request
     ) {
         Room room = getRoomForOwner(currentUid);
-        List<RoomFurniture> furnitureList = roomFurnitureRepository.findByRoomId(room.getRoomId());
+        List<RoomFurniture> furnitureList = repairFurnitureLayoutIfNeeded(
+                room,
+                roomFurnitureRepository.findByRoomId(room.getRoomId())
+        );
         RoomLayoutResponseDto.LayoutData serverLayout = toResponse(room, furnitureList).getRoomLayout();
 
         boolean layoutMatches = request != null &&
@@ -154,7 +161,7 @@ public class RoomService {
         furniture.setDirection(item.getRotation() == null ? 0 : item.getRotation());
         furniture.setStatus("unused");
 
-        String anchorMode = defaultIfBlank(tilePlacement.getAnchorMode(), "CENTER");
+        String anchorMode = defaultIfBlank(tilePlacement.getAnchorMode(), defaultAnchorModeFor(type));
         return new LayoutItem(furniture, footprint.widthTiles(), footprint.depthTiles(), anchorMode);
     }
 
@@ -192,11 +199,171 @@ public class RoomService {
                 a.getY() + first.depthTiles() > b.getY();
     }
 
+    private List<RoomFurniture> repairFurnitureLayoutIfNeeded(Room room, List<RoomFurniture> furnitureList) {
+        if (furnitureList == null || furnitureList.isEmpty()) {
+            return List.of();
+        }
+
+        List<RoomFurniture> sortedFurniture = furnitureList.stream()
+                .sorted(Comparator.comparingInt(this::typePriority)
+                        .thenComparing(RoomFurniture::getId, Comparator.nullsLast(Long::compareTo)))
+                .collect(Collectors.toCollection(ArrayList::new));
+
+        List<LayoutItem> acceptedItems = new ArrayList<>();
+        boolean migrateLegacyDefaultLayout = isLegacyDefaultLayout(sortedFurniture);
+        boolean changed = false;
+
+        for (RoomFurniture furniture : sortedFurniture) {
+            String type = normalizeTypeOrNull(furniture.getType());
+            if (type == null) {
+                continue;
+            }
+
+            TileFootprint footprint = defaultFootprintFor(type);
+            boolean itemChanged = false;
+
+            if (!type.equals(furniture.getType())) {
+                furniture.setType(type);
+                itemChanged = true;
+            }
+
+            LayoutItem currentItem = new LayoutItem(
+                    furniture,
+                    footprint.widthTiles(),
+                    footprint.depthTiles(),
+                    defaultAnchorModeFor(type)
+            );
+
+            if (
+                    hasManagedDefaultTile(type) &&
+                            (room.getLayoutRevision() == 0 || migrateLegacyDefaultLayout) &&
+                            !isAtDefaultTile(type, furniture)
+            ) {
+                TileCoord defaultTile = defaultTileFor(type);
+                furniture.setX(defaultTile.x());
+                furniture.setY(defaultTile.y());
+                itemChanged = true;
+            }
+
+            if (!isWithinBounds(furniture.getX(), furniture.getY(), footprint) ||
+                    overlapsAny(currentItem, acceptedItems)) {
+                TileCoord repairedTile = findAvailableRepairTile(type, furniture.getX(), furniture.getY(), footprint, acceptedItems);
+                if (furniture.getX() != repairedTile.x() || furniture.getY() != repairedTile.y()) {
+                    furniture.setX(repairedTile.x());
+                    furniture.setY(repairedTile.y());
+                    itemChanged = true;
+                }
+            }
+
+            LayoutItem repairedItem = new LayoutItem(
+                    furniture,
+                    footprint.widthTiles(),
+                    footprint.depthTiles(),
+                    defaultAnchorModeFor(type)
+            );
+            acceptedItems.add(repairedItem);
+            changed = changed || itemChanged;
+        }
+
+        if (changed) {
+            roomFurnitureRepository.saveAll(
+                    acceptedItems.stream()
+                            .map(LayoutItem::furniture)
+                            .collect(Collectors.toList())
+            );
+            room.setLayoutRevision(room.getLayoutRevision() + 1);
+            room.setUpdatedAt(LocalDateTime.now());
+            roomRepository.save(room);
+        }
+
+        return acceptedItems.stream()
+                .map(LayoutItem::furniture)
+                .collect(Collectors.toList());
+    }
+
+    private boolean overlapsAny(LayoutItem item, List<LayoutItem> acceptedItems) {
+        return acceptedItems.stream().anyMatch(accepted -> overlaps(item, accepted));
+    }
+
+    private boolean isWithinBounds(int x, int y, TileFootprint footprint) {
+        return x >= 0 &&
+                y >= 0 &&
+                footprint.widthTiles() > 0 &&
+                footprint.depthTiles() > 0 &&
+                x + footprint.widthTiles() <= ROOM_WIDTH_TILES &&
+                y + footprint.depthTiles() <= ROOM_DEPTH_TILES;
+    }
+
+    private TileCoord findAvailableRepairTile(
+            String type,
+            int originalX,
+            int originalY,
+            TileFootprint footprint,
+            List<LayoutItem> acceptedItems
+    ) {
+        TileCoord defaultTile = defaultTileFor(type);
+        if (canPlaceAt(defaultTile.x(), defaultTile.y(), footprint, acceptedItems)) {
+            return defaultTile;
+        }
+
+        int clampedX = originalX;
+        int clampedY = originalY;
+        if (!isWithinBounds(originalX, originalY, footprint)) {
+            clampedX = Math.max(0, Math.min(originalX, ROOM_WIDTH_TILES - footprint.widthTiles()));
+            clampedY = Math.max(0, Math.min(originalY, ROOM_DEPTH_TILES - footprint.depthTiles()));
+        }
+
+        TileCoord bestTile = null;
+        int bestDistance = Integer.MAX_VALUE;
+        for (int y = 0; y <= ROOM_DEPTH_TILES - footprint.depthTiles(); y++) {
+            for (int x = 0; x <= ROOM_WIDTH_TILES - footprint.widthTiles(); x++) {
+                if (!canPlaceAt(x, y, footprint, acceptedItems)) {
+                    continue;
+                }
+
+                int distance = Math.abs(x - clampedX) + Math.abs(y - clampedY);
+                if (distance < bestDistance) {
+                    bestDistance = distance;
+                    bestTile = new TileCoord(x, y);
+                }
+            }
+        }
+
+        if (bestTile != null) {
+            return bestTile;
+        }
+
+        return defaultTile;
+    }
+
+    private boolean canPlaceAt(
+            int x,
+            int y,
+            TileFootprint footprint,
+            List<LayoutItem> acceptedItems
+    ) {
+        if (!isWithinBounds(x, y, footprint)) {
+            return false;
+        }
+
+        RoomFurniture probe = new RoomFurniture();
+        probe.setX(x);
+        probe.setY(y);
+        LayoutItem probeItem = new LayoutItem(
+                probe,
+                footprint.widthTiles(),
+                footprint.depthTiles(),
+                "CENTER"
+        );
+        return !overlapsAny(probeItem, acceptedItems);
+    }
+
     private RoomLayoutResponseDto toResponse(Room room, List<RoomFurniture> furnitureList) {
         List<RoomLayoutResponseDto.PlacedRoomItem> placedItems = furnitureList.stream()
                 .sorted(Comparator.comparing(RoomFurniture::getType, Comparator.nullsLast(String::compareTo))
                         .thenComparing(RoomFurniture::getId, Comparator.nullsLast(Long::compareTo)))
-                .map(this::toPlacedItem)
+                .map(this::toPlacedItemOrNull)
+                .filter(Objects::nonNull)
                 .collect(Collectors.toList());
 
         String wallAssetKey = defaultIfBlank(room.getWallAssetKey(), DEFAULT_WALL_ASSET_KEY);
@@ -217,8 +384,11 @@ public class RoomService {
                 .build();
     }
 
-    private RoomLayoutResponseDto.PlacedRoomItem toPlacedItem(RoomFurniture furniture) {
-        String type = normalizeType(furniture.getType());
+    private RoomLayoutResponseDto.PlacedRoomItem toPlacedItemOrNull(RoomFurniture furniture) {
+        String type = normalizeTypeOrNull(furniture.getType());
+        if (type == null) {
+            return null;
+        }
         TileFootprint footprint = defaultFootprintFor(type);
 
         return RoomLayoutResponseDto.PlacedRoomItem.builder()
@@ -237,7 +407,7 @@ public class RoomService {
                                 .widthTiles(footprint.widthTiles())
                                 .depthTiles(footprint.depthTiles())
                                 .build())
-                        .anchorMode("CENTER")
+                        .anchorMode(defaultAnchorModeFor(type))
                         .build())
                 .wallPlacement(null)
                 .scale(1f)
@@ -262,7 +432,8 @@ public class RoomService {
                             .append(tilePlacement.getTile().getX()).append(',')
                             .append(tilePlacement.getTile().getY()).append(',')
                             .append(tilePlacement.getFootprint().getWidthTiles()).append('x')
-                            .append(tilePlacement.getFootprint().getDepthTiles());
+                            .append(tilePlacement.getFootprint().getDepthTiles()).append(',')
+                            .append(defaultIfBlank(tilePlacement.getAnchorMode(), defaultAnchorModeFor(item.getType())));
                 });
 
         try {
@@ -275,8 +446,16 @@ public class RoomService {
     }
 
     private String normalizeType(String type) {
-        if (type == null || type.isBlank()) {
+        String normalized = normalizeTypeOrNull(type);
+        if (normalized == null) {
             throw new CustomApiException(ErrorCode.INVALID_ROOM_LAYOUT);
+        }
+        return normalized;
+    }
+
+    private String normalizeTypeOrNull(String type) {
+        if (type == null || type.isBlank()) {
+            return null;
         }
 
         String normalized = type.trim()
@@ -286,6 +465,20 @@ public class RoomService {
             return "FOOD_BAG";
         }
         return normalized;
+    }
+
+    private int typePriority(RoomFurniture furniture) {
+        String type = normalizeTypeOrNull(furniture.getType());
+        if (type == null) {
+            return Integer.MAX_VALUE;
+        }
+
+        return switch (type) {
+            case "BED" -> 0;
+            case "TOY_BOX" -> 1;
+            case "FOOD_BAG" -> 2;
+            default -> 10;
+        };
     }
 
     private TileFootprint resolveFootprint(
@@ -332,6 +525,73 @@ public class RoomService {
         return "placement_" + type.toLowerCase(Locale.ROOT);
     }
 
+    private TileCoord defaultTileFor(String type) {
+        return switch (type) {
+            case "BED" -> new TileCoord(2, 0);
+            case "TOY_BOX" -> new TileCoord(1, 4);
+            case "FOOD_BAG" -> new TileCoord(4, 3);
+            default -> new TileCoord(0, 0);
+        };
+    }
+
+    private TileCoord legacyDefaultTileFor(String type) {
+        return switch (type) {
+            case "BED" -> new TileCoord(0, 0);
+            case "TOY_BOX" -> new TileCoord(0, 4);
+            case "FOOD_BAG" -> new TileCoord(1, 3);
+            default -> null;
+        };
+    }
+
+    private boolean isLegacyDefaultLayout(List<RoomFurniture> furnitureList) {
+        boolean hasBed = false;
+        boolean hasToyBox = false;
+        boolean hasFoodBag = false;
+
+        for (RoomFurniture furniture : furnitureList) {
+            String type = normalizeTypeOrNull(furniture.getType());
+            if (type == null) {
+                continue;
+            }
+
+            TileCoord legacyTile = legacyDefaultTileFor(type);
+            if (legacyTile == null) {
+                continue;
+            }
+
+            if (!isAtTile(furniture, legacyTile)) {
+                return false;
+            }
+
+            if ("BED".equals(type)) {
+                hasBed = true;
+            } else if ("TOY_BOX".equals(type)) {
+                hasToyBox = true;
+            } else if ("FOOD_BAG".equals(type)) {
+                hasFoodBag = true;
+            }
+        }
+
+        return hasBed && hasToyBox && hasFoodBag;
+    }
+
+    private boolean hasManagedDefaultTile(String type) {
+        return legacyDefaultTileFor(type) != null;
+    }
+
+    private boolean isAtDefaultTile(String type, RoomFurniture furniture) {
+        TileCoord defaultTile = defaultTileFor(type);
+        return isAtTile(furniture, defaultTile);
+    }
+
+    private boolean isAtTile(RoomFurniture furniture, TileCoord tile) {
+        return furniture.getX() == tile.x() && furniture.getY() == tile.y();
+    }
+
+    private String defaultAnchorModeFor(String type) {
+        return "BED".equals(type) ? "FRONT_CENTER" : "CENTER";
+    }
+
     private String defaultIfBlank(String value, String fallback) {
         if (value == null || value.isBlank()) {
             return fallback;
@@ -348,5 +608,8 @@ public class RoomService {
     }
 
     private record TileFootprint(int widthTiles, int depthTiles) {
+    }
+
+    private record TileCoord(int x, int y) {
     }
 }

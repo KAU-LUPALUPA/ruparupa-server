@@ -7,6 +7,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.util.List;
+import java.util.Map;
 
 public class PlazaDto {
     @Getter
@@ -43,8 +44,10 @@ public class PlazaDto {
         private String plazaId;
         private String plazaCode;
         private String displayPlazaCode;
+        private Long serverNowMillis;
         private List<PlazaParticipantResponse> participants;
         private List<PlazaChatMessageResponse> messages;
+        private List<PlazaInteractionResponse> interactions;
         private int maxParticipants;
         private Long roomRevision;
     }
@@ -59,7 +62,39 @@ public class PlazaDto {
         private String nickname;
         private PlazaPetSnapshotResponse pet;
         private PlazaPositionResponse position;
+        private PlazaMovementResponse movement;
+        private Long positionUpdatedAtMillis;
         private Long joinedAtMillis;
+    }
+
+    @Getter
+    @Setter
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    public static class PlazaMovementResponse {
+        private PlazaPositionResponse from;
+        private PlazaPositionResponse to;
+        private Long startedAtMillis;
+        private Long durationMillis;
+    }
+
+    @Getter
+    @Setter
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    public static class PlazaInteractionResponse {
+        private String id;
+        private String type;
+        private String actorUserId;
+        private String targetUserId;
+        private Map<String, String> textByUserId;
+        private Long startedAtMillis;
+        private Long durationMillis;
+        private Map<String, PlazaPositionResponse> movementTargetByUserId;
+        private Map<String, PlazaPositionResponse> facingTargetByUserId;
+        private Map<String, String> animationByUserId;
     }
 
     @Getter

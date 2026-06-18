@@ -49,8 +49,29 @@ public enum ErrorCode {
     ROOM_NOT_FOUND(404, "방 정보를 찾을 수 없습니다."),
     INVALID_ROOM_LAYOUT(400, "방 레이아웃 형식이 올바르지 않습니다."),
     ROOM_LAYOUT_CONFLICT(409, "서버의 방 레이아웃이 더 최신입니다."),
+
+    // 갤러리 (스크린샷)
+    SCREENSHOT_NOT_FOUND(404, "스크린샷을 찾을 수 없습니다."),
+    SCREENSHOT_ACCESS_DENIED(403, "해당 스크린샷에 접근 권한이 없습니다."),
+    SCREENSHOT_UPLOAD_FAILED(500, "S3 업로드 URL 생성에 실패했습니다."),
+    SCREENSHOT_DELETE_FAILED(500, "S3 파일 삭제에 실패했습니다."),
+
+    // 콘테스트
+    CONTEST_ALREADY_JOINED(409, "이미 진행 중인 콘테스트에 참가 중입니다."),
+    CONTEST_ENTRY_NOT_FOUND(404, "콘테스트 참가 정보를 찾을 수 없습니다."),
+    CONTEST_GROUP_NOT_FOUND(404, "콘테스트 그룹을 찾을 수 없습니다."),
+    CONTEST_ACCESS_DENIED(403, "해당 콘테스트 참가 정보에 접근 권한이 없습니다."),
+    CONTEST_NOT_ACTIVE(409, "종료된 콘테스트에는 투표할 수 없습니다."),
+    CONTEST_CANNOT_VOTE_SELF(400, "자신의 캐릭터에는 투표할 수 없습니다."),
+    CONTEST_ALREADY_VOTED(409, "이미 해당 참가자에게 투표했습니다."),
+    CONTEST_NOT_JOINED(404, "현재 참가 중인 콘테스트가 없습니다."),
+    CONTEST_UPLOAD_URL_FAILED(500, "콘테스트 이미지 업로드 URL 생성에 실패했습니다."),
+    CONTEST_ALREADY_VOTED_TODAY(409, "오늘 이미 투표에 참여했습니다."),
+    CONTEST_NO_VOTABLE_GROUP(404, "현재 투표 가능한 다른 조가 없습니다."),
+    CONTEST_CANNOT_VOTE_OWN_GROUP(403, "자신이 속한 조에는 투표할 수 없습니다."),
  
     // 공통
+    DATABASE_ERROR(500, "데이터베이스 처리 중 오류가 발생했습니다."),
     BLOCKED(403, "접근 권한이 없습니다."),
     UNKNOWN(500, "서버 내부 오류가 발생했습니다.");
  
