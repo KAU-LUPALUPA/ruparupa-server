@@ -18,6 +18,7 @@ public class RoomResponseDto {
         private String name;
         private int satiety;
         private int vitality; // ⭐ 기존 energy에서 vitality로 수정됨!
+        private int cleanliness;
         private boolean isSleep;
     }
 

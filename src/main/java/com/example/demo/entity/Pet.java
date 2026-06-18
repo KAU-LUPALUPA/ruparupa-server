@@ -5,6 +5,7 @@ import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.UpdateTimestamp;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -44,6 +45,22 @@ public class Pet {
     @Builder.Default
     @Column(nullable = false)
     private int vitality = 100; 
+
+    @Builder.Default
+    @Column(nullable = false)
+    private int cleanliness = 100;
+
+    @Embedded
+    @Builder.Default
+    private PetTraits traits = new PetTraits();
+
+    @Embedded
+    @Builder.Default
+    private InteractionEvents interactionEvents = new InteractionEvents();
+
+    @Builder.Default
+    @Column(nullable = false)
+    private LocalDate lastEmaUpdatedDate = LocalDate.now();
 
     @Builder.Default
     @Column(nullable = false)
