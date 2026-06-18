@@ -90,17 +90,17 @@ public class PetService {
         RoomFurniture bed = new RoomFurniture();
         bed.setRoomId(savedRoom.getRoomId());
         bed.setType("BED");
-        bed.setX(0); bed.setY(0); bed.setDirection(0);
+        bed.setX(2); bed.setY(0); bed.setDirection(0);
 
         RoomFurniture toyBox = new RoomFurniture();
         toyBox.setRoomId(savedRoom.getRoomId());
         toyBox.setType("TOY_BOX");
-        toyBox.setX(0); toyBox.setY(4); toyBox.setDirection(0);
+        toyBox.setX(1); toyBox.setY(4); toyBox.setDirection(0);
 
         RoomFurniture feedBag = new RoomFurniture();
         feedBag.setRoomId(savedRoom.getRoomId());
         feedBag.setType("FOOD_BAG");
-        feedBag.setX(1); feedBag.setY(3); feedBag.setDirection(0);
+        feedBag.setX(4); feedBag.setY(3); feedBag.setDirection(0);
 
         roomFurnitureRepository.saveAll(List.of(bed, toyBox, feedBag));
         

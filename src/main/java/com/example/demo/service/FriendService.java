@@ -40,6 +40,9 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class FriendService {
+    private static final int ROOM_WIDTH_TILES = 6;
+    private static final int ROOM_DEPTH_TILES = 6;
+    private static final String ANCHOR_MODE_FRONT_CENTER = "FRONT_CENTER";
  
     private final UserRepository userRepository;
     private final FriendRequestRepository requestRepository;
@@ -115,8 +118,15 @@ public class FriendService {
 
     private FriendDto.FriendPlacedItem convertToPlacedItemDto(RoomFurniture furniture) {
         TileFootprint footprint = footprintFor(furniture.getType());
-        float anchorU = Math.max(0f, Math.min(1f, (furniture.getX() + 0.5f) / 10f));
-        float anchorV = Math.max(0f, Math.min(1f, (furniture.getY() + 0.5f) / 10f));
+        String anchorMode = defaultAnchorModeFor(furniture.getType());
+        float anchorX = furniture.getX() + (footprint.widthTiles() / 2f);
+        float anchorY = furniture.getY() + (
+                ANCHOR_MODE_FRONT_CENTER.equals(anchorMode)
+                        ? footprint.depthTiles()
+                        : footprint.depthTiles() / 2f
+        );
+        float anchorU = clamp01(anchorX / ROOM_WIDTH_TILES);
+        float anchorV = clamp01(anchorY / ROOM_DEPTH_TILES);
 
         return FriendDto.FriendPlacedItem.builder()
                 .placedItemId("placed_" + furniture.getId())
@@ -132,7 +142,7 @@ public class FriendService {
                         .y(furniture.getY())
                         .widthTiles(footprint.widthTiles())
                         .depthTiles(footprint.depthTiles())
-                        .anchorMode("CENTER")
+                        .anchorMode(anchorMode)
                         .build())
                 .build();
     }
@@ -147,6 +157,17 @@ public class FriendService {
             case "TOY_BOX", "FOOD_BAG", "FEED_BAG" -> new TileFootprint(1, 1);
             default -> new TileFootprint(1, 1);
         };
+    }
+
+    private String defaultAnchorModeFor(String type) {
+        if (type == null) {
+            return "CENTER";
+        }
+        return "BED".equals(type.trim().replace('-', '_').toUpperCase(Locale.ROOT)) ? "FRONT_CENTER" : "CENTER";
+    }
+
+    private float clamp01(float value) {
+        return Math.max(0f, Math.min(1f, value));
     }
 
     private record TileFootprint(int widthTiles, int depthTiles) {
