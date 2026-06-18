@@ -20,17 +20,19 @@ public class PlazaController {
 
     @PostMapping("/random/join")
     public ResponseEntity<PlazaDto.PlazaRoomResponse> joinRandomPlaza(
-            @RequestAttribute("currentUid") String currentUid
+            @RequestAttribute("currentUid") String currentUid,
+            @RequestAttribute(value = "currentNickname", required = false) String currentNickname
     ) {
-        return ResponseEntity.ok(plazaService.joinRandomPlaza(currentUid));
+        return ResponseEntity.ok(plazaService.joinRandomPlaza(currentUid, currentNickname));
     }
 
     @PostMapping("/code/join")
     public ResponseEntity<PlazaDto.PlazaRoomResponse> joinPlazaByCode(
             @RequestAttribute("currentUid") String currentUid,
+            @RequestAttribute(value = "currentNickname", required = false) String currentNickname,
             @RequestBody PlazaDto.JoinByCodeRequest request
     ) {
-        return ResponseEntity.ok(plazaService.joinPlazaByCode(currentUid, request.getCode()));
+        return ResponseEntity.ok(plazaService.joinPlazaByCode(currentUid, currentNickname, request.getCode()));
     }
 
     @GetMapping("/me/active")
