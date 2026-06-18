@@ -42,7 +42,7 @@ public class PetService {
 
     public MyPetResponseDto convertToDto(Pet pet) {
         return MyPetResponseDto.builder()
-                .petId(pet.getPetUid())
+                .petId(pet.getId().toString())
                 .ownerUserId(pet.getUser().getUid())
                 .name(pet.getName())
                 .characterAssetKey(pet.getCharacterAssetKey())
@@ -137,6 +137,7 @@ public class PetService {
 
         // 자정 동기화 (지연 평가)
         pet = syncMidnightUpdates(pet);
+        applyTimeDecay(pet);
 
         // 상태 검증
         if (pet.isSleep()) throw new IllegalStateException("펫이 자고 있습니다.");
@@ -162,6 +163,7 @@ public class PetService {
 
         // 자정 동기화 (지연 평가)
         pet = syncMidnightUpdates(pet);
+        applyTimeDecay(pet);
 
         // 상태 검증
         if (pet.isSleep()) {
@@ -185,6 +187,7 @@ public class PetService {
 
         // 자정 동기화 (지연 평가)
         pet = syncMidnightUpdates(pet);
+        applyTimeDecay(pet);
 
         // 상태 검증
         if (pet.isSleep()) {
@@ -210,6 +213,7 @@ public class PetService {
         }
 
         pet = syncMidnightUpdates(pet);
+        applyTimeDecay(pet);
 
         if (pet.isSleep()) {
             throw new IllegalStateException("펫이 자고 있습니다.");
@@ -253,5 +257,89 @@ public class PetService {
             return petRepository.save(pet);
         }
         return pet;
+    }
+
+    // 시간 경과에 따른 자연 감소분 반영 (지연 평가)
+    private void applyTimeDecay(Pet pet) {
+        if (pet.getUpdatedAt() == null) return;
+        long elapsedSeconds = java.time.temporal.ChronoUnit.SECONDS.between(pet.getUpdatedAt(), java.time.LocalDateTime.now());
+        if (elapsedSeconds <= 0) return;
+
+        float appetiteMod = 0.5f + pet.getTraits().getAppetite();
+        float activityMod = 0.5f + pet.getTraits().getActivity();
+
+        int satietyDecay = (int) ((elapsedSeconds / 600L) * appetiteMod);
+        int vitalityDecay = (int) ((elapsedSeconds / 900L) * activityMod);
+        int cleanlinessDecay = (int) ((elapsedSeconds / 1800L) * activityMod);
+
+        pet.setSatiety(Math.max(0, pet.getSatiety() - satietyDecay));
+        pet.setVitality(Math.max(0, pet.getVitality() - vitalityDecay));
+        pet.setCleanliness(Math.max(0, pet.getCleanliness() - cleanlinessDecay));
+        
+        pet.setUpdatedAt(java.time.LocalDateTime.now());
+    }
+
+    @Transactional
+    public MyPetResponseDto syncStatus(String currentUid, Long petId, com.example.demo.dto.PetStatusSyncDto request) {
+        Pet pet = petRepository.findById(petId).orElseThrow(() -> new IllegalArgumentException("펫이 존재하지 않습니다."));
+        
+        if (!pet.getUser().getUid().equals(currentUid)) {
+            throw new IllegalArgumentException("본인의 펫만 조작할 수 있습니다.");
+        }
+
+        // 자정 경과 확인 (동기화 전 선행 처리)
+        syncMidnightUpdates(pet);
+        
+        // 서버 측에서 시간 경과에 따른 감소분을 먼저 적용합니다.
+        applyTimeDecay(pet);
+
+        int oldSatiety = pet.getSatiety();
+        int oldVitality = pet.getVitality();
+        int oldCleanliness = pet.getCleanliness();
+
+        int diffSatiety = oldSatiety - request.getSatiety();
+        int diffVitality = oldVitality - request.getVitality();
+        int diffCleanliness = oldCleanliness - request.getCleanliness();
+
+        // 클라이언트에서 계산한 값과 서버에서 시간 기반으로 계산한 값(자연 감소) 간의 오차가 일정 수준 이상이면 조작으로 간주
+        // 오프라인이든 온라인(In-game)이든, 정상적인 경우 서버가 똑같이 decay를 적용했으므로 diff는 거의 0에 가까워야 함.
+        // 다만 상호작용(씻기기 등)이나 프론트엔드의 세세한 반올림 차이를 허용하기 위해 여유값을 둠.
+        if (request.isOfflineSync()) {
+            if (diffSatiety < -10 || diffVitality < -10 || diffCleanliness < -10) {
+                throw new IllegalArgumentException("Offline sync cannot significantly increase stats. (Client requested higher stats than server calculated)");
+            } else if (Math.abs(diffSatiety) > 30 || Math.abs(diffVitality) > 30 || Math.abs(diffCleanliness) > 30) {
+                throw new IllegalArgumentException("Offline decay exceeded the allowed threshold. Potential manipulation detected.");
+            }
+        } else {
+            // 인게임 동기화의 경우, 자율 행동(Auto Groom) 등으로 인해 청결도가 오르거나 밥을 먹일 수 있으므로 (증가) 방향은 크게 허용하되 감소는 조작 방지
+            if (diffSatiety > 30 || diffVitality > 30 || diffCleanliness > 30) {
+                throw new IllegalArgumentException("In-game sync decay mismatch exceeded the allowed threshold.");
+            }
+        }
+
+        pet.setSatiety(request.getSatiety());
+        pet.setVitality(request.getVitality());
+        pet.setCleanliness(request.getCleanliness());
+        pet.setUpdatedAt(java.time.LocalDateTime.now());
+
+        return convertToDto(petRepository.save(pet));
+    }
+
+    @Transactional
+    public MyPetResponseDto updateTraitsDebug(String currentUid, Long petId, com.example.demo.dto.PetTraitsSyncDto request) {
+        Pet pet = petRepository.findById(petId).orElseThrow(() -> new IllegalArgumentException("펫이 존재하지 않습니다."));
+        
+        if (!pet.getUser().getUid().equals(currentUid)) {
+            throw new IllegalArgumentException("본인의 펫만 조작할 수 있습니다.");
+        }
+
+        PetTraits traits = pet.getTraits();
+        traits.setActivity(request.getActivity());
+        traits.setPatience(request.getPatience());
+        traits.setCuriosity(request.getCuriosity());
+        traits.setAppetite(request.getAppetite());
+        traits.setAttention(request.getAttention());
+        
+        return convertToDto(petRepository.save(pet));
     }
 }
